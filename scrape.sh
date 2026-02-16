@@ -9,8 +9,7 @@ set -euo pipefail
 
 BASE="https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml"
 DPIMG="https://webapps.rrc.state.tx.us/dpimages/r"
-DELAY=0.3
-WORKERS=${WORKERS:-8}  # parallel workers for Phase 2 & 3
+WORKERS=${WORKERS:-32}  # parallel workers for Phase 2 & 3
 DATA_DIR="data"
 PDF_DIR="$DATA_DIR/pdfs"
 COOKIES="$DATA_DIR/.cookies"
@@ -36,8 +35,7 @@ curl_retry() {
       return 0
     fi
     attempt=$(( attempt + 1 ))
-    log "RETRY: curl failed (attempt $attempt/3), waiting ${attempt}s..."
-    sleep "$attempt"
+    log "RETRY: curl failed (attempt $attempt/3)"
   done
   log "ERROR: curl failed after 3 attempts"
   return 1
@@ -67,7 +65,6 @@ init_session() {
   local vs=$(get_viewstate "$DATA_DIR/.page.html")
   if [ -z "$vs" ]; then
     log "WARN: init_session got empty ViewState, retrying..."
-    sleep 2
     rm -f "$COOKIES"
     curl_retry -s -c "$COOKIES" "$BASE" -o "$DATA_DIR/.page.html"
     vs=$(get_viewstate "$DATA_DIR/.page.html")
@@ -224,7 +221,6 @@ phase_metadata() {
     save_state "meta:1"
     start_page=1
     log "Page 1/$total_pages"
-    sleep "$DELAY"
   fi
 
   local page=0 first=0 fail_count=0
@@ -246,7 +242,6 @@ phase_metadata() {
           break
         fi
         log "WARN: Still failing, skipping page $((page + 1))"
-        sleep 5
         continue
       fi
       fail_count=0
@@ -259,7 +254,6 @@ phase_metadata() {
     parse_table_rows "$page_result" >> "$METADATA_CSV"
     save_state "meta:$((page + 1))"
     log "Page $((page + 1))/$total_pages"
-    sleep "$DELAY"
   done
 
   # Deduplicate
@@ -275,185 +269,129 @@ phase_metadata() {
 
 # --- Phase 2: Get document IDs from detail pages (parallel workers) ---
 
-# Single-worker loop: processes filings from a shard file
 _documents_worker() {
-  local worker_id="$1" shard_file="$2" done_file="$3" out_file="$4"
-  local wdir="$DATA_DIR/.w${worker_id}"
-  mkdir -p "$wdir"
-
-  # Worker gets its own cookie jar and temp files
-  local w_cookies="$wdir/cookies" w_page="$wdir/page.html"
-  local w_search="$wdir/search.xml" w_detail="$wdir/detail.html"
-  local w_ids="$wdir/ids.tmp" w_names="$wdir/names.tmp" w_types="$wdir/types.tmp"
+  local worker_id="$1" shard_file="$2" out_file="$3"
+  local d="$DATA_DIR/.w${worker_id}"
+  mkdir -p "$d"
+  local cookies="$d/c" i=0
 
   # Init worker session
-  rm -f "$w_cookies"
-  curl_retry -s -c "$w_cookies" "$BASE" -o "$w_page"
-  local vs=$(get_viewstate "$w_page")
-  local i=0
+  curl_retry -s -c "$cookies" "$BASE" -o "$d/p"
+  local vs=$(get_viewstate "$d/p")
 
-  while IFS= read -r filing_no; do
-    [ -z "$filing_no" ] && continue
+  _reinit_session() {
+    rm -f "$cookies"
+    curl_retry -s -c "$cookies" "$BASE" -o "$d/p"
+    vs=$(get_viewstate "$d/p")
+  }
+
+  while IFS= read -r fn; do
+    [ -z "$fn" ] && continue
     i=$(( i + 1 ))
 
-    # Skip if already done (lockfile claim)
-    local lockfile="$DATA_DIR/.lock_${filing_no}"
-    if [ -f "$lockfile" ] || ! mkdir "$lockfile" 2>/dev/null; then
-      continue
-    fi
-
     # Search by filing number
-    local data="javax.faces.partial.ajax=true"
-    data="$data&javax.faces.source=pbqueryForm%3AsearchExceptions"
-    data="$data&javax.faces.partial.execute=%40all"
-    data="$data&javax.faces.partial.render=pbqueryForm%3ApQueryTable"
-    data="$data&pbqueryForm%3AsearchExceptions=pbqueryForm%3AsearchExceptions"
-    data="$data&pbqueryForm=pbqueryForm"
-    data="$data&javax.faces.ViewState=$(printf '%s' "$vs" | sed 's/:/%3A/g')"
-    data="$data&pbqueryForm%3AfilingNumber_input=$filing_no"
-    data="$data&pbqueryForm%3AfilingNumber_hinput=$filing_no"
-    data="$data&pbqueryForm%3AfilingTypeList_focus=&pbqueryForm%3AfilingTypeList_input="
-    data="$data&pbqueryForm%3ApermanentException_focus=&pbqueryForm%3ApermanentException_input="
-    data="$data&pbqueryForm%3Aswr32h8_focus=&pbqueryForm%3Aswr32h8_input="
-    data="$data&pbqueryForm%3ApropertyTypeList_focus=&pbqueryForm%3ApropertyTypeList_input="
-
-    curl_retry -s -b "$w_cookies" -c "$w_cookies" \
+    local ve=$(printf '%s' "$vs" | sed 's/:/%3A/g')
+    curl_retry -s -b "$cookies" -c "$cookies" \
       -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
       -H 'Faces-Request: partial/ajax' \
       -H 'X-Requested-With: XMLHttpRequest' \
-      -d "$data" "$BASE" -o "$w_search"
+      -d "javax.faces.partial.ajax=true&javax.faces.source=pbqueryForm%3AsearchExceptions&javax.faces.partial.execute=%40all&javax.faces.partial.render=pbqueryForm%3ApQueryTable&pbqueryForm%3AsearchExceptions=pbqueryForm%3AsearchExceptions&pbqueryForm=pbqueryForm&javax.faces.ViewState=${ve}&pbqueryForm%3AfilingNumber_input=${fn}&pbqueryForm%3AfilingNumber_hinput=${fn}&pbqueryForm%3AfilingTypeList_focus=&pbqueryForm%3AfilingTypeList_input=&pbqueryForm%3ApermanentException_focus=&pbqueryForm%3ApermanentException_input=&pbqueryForm%3Aswr32h8_focus=&pbqueryForm%3Aswr32h8_input=&pbqueryForm%3ApropertyTypeList_focus=&pbqueryForm%3ApropertyTypeList_input=" \
+      "$BASE" -o "$d/s"
 
-    if ! response_ok "$w_search"; then
-      rm -f "$w_cookies"
-      curl_retry -s -c "$w_cookies" "$BASE" -o "$w_page"
-      vs=$(get_viewstate "$w_page")
-      curl_retry -s -b "$w_cookies" -c "$w_cookies" \
-        -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
-        -H 'Faces-Request: partial/ajax' \
-        -H 'X-Requested-With: XMLHttpRequest' \
-        -d "$data" "$BASE" -o "$w_search"
+    if ! response_ok "$d/s"; then
+      _reinit_session
+      continue
     fi
-    vs=$(get_viewstate "$w_search")
-    sleep "$DELAY"
+    vs=$(get_viewstate "$d/s")
 
-    local count=$(get_total_records "$w_search" 2>/dev/null) || count=0
-    if [ -z "$count" ] || [ "$count" -eq 0 ] 2>/dev/null; then
-      printf '%s\t\t\t\n' "$filing_no" >> "$out_file"
-      rm -f "$w_cookies"
-      curl_retry -s -c "$w_cookies" "$BASE" -o "$w_page"
-      vs=$(get_viewstate "$w_page")
+    local count=$(get_total_records "$d/s" 2>/dev/null)
+    if [ -z "$count" ] || [ "$count" = "0" ]; then
+      printf '%s\t\t\t\n' "$fn" >> "$out_file"
       continue
     fi
 
     # View detail page
-    local vs_enc=$(printf '%s' "$vs" | sed 's/:/%3A/g')
-    curl_retry -s -L -b "$w_cookies" -c "$w_cookies" \
-      -d "pbqueryForm=pbqueryForm&javax.faces.ViewState=${vs_enc}&pbqueryForm%3ApQueryTable%3A0%3Aj_idt150=pbqueryForm%3ApQueryTable%3A0%3Aj_idt150" \
-      "$BASE" -o "$w_detail"
+    ve=$(printf '%s' "$vs" | sed 's/:/%3A/g')
+    curl_retry -s -L -b "$cookies" -c "$cookies" \
+      -d "pbqueryForm=pbqueryForm&javax.faces.ViewState=${ve}&pbqueryForm%3ApQueryTable%3A0%3Aj_idt150=pbqueryForm%3ApQueryTable%3A0%3Aj_idt150" \
+      "$BASE" -o "$d/d"
 
-    if ! response_ok "$w_detail"; then
-      rm -f "$w_cookies"
-      curl_retry -s -c "$w_cookies" "$BASE" -o "$w_page"
-      vs=$(get_viewstate "$w_page")
-      printf '%s\t\t\t\n' "$filing_no" >> "$out_file"
+    if ! response_ok "$d/d"; then
+      _reinit_session
+      printf '%s\t\t\t\n' "$fn" >> "$out_file"
       continue
     fi
-    sleep "$DELAY"
 
-    # Extract documents (worker-local temp files)
-    grep -o 'dpimages[^0-9]*r[^0-9]*[0-9][0-9]*' "$w_detail" \
-      | grep -o '[0-9][0-9]*$' > "$w_ids"
-    sed -n '/attachmentTable/,/<\/table>/p' "$w_detail" \
-      | grep -o 'text-align: left; ">[^<]*' \
-      | sed 's/text-align: left; ">//' > "$w_names"
-    sed -n '/attachmentTable/,/<\/table>/p' "$w_detail" \
-      | grep -o 'text-align: center; width:30%">[^<]*' \
-      | sed 's/text-align: center; width:30%">//' \
-      | sed '/^$/d' > "$w_types"
-
-    local doc_info=$(paste "$w_ids" "$w_names" "$w_types" 2>/dev/null) || true
-    if [ -n "$doc_info" ]; then
-      echo "$doc_info" | while IFS='	' read -r doc_id filename file_type; do
-        printf '%s\t%s\t%s\t%s\n' "$filing_no" "$doc_id" "$filename" "$file_type"
-      done >> "$out_file"
+    # Extract documents
+    local ids=$(grep -o 'dpimages[^0-9]*r[^0-9]*[0-9][0-9]*' "$d/d" 2>/dev/null | grep -o '[0-9][0-9]*$')
+    if [ -n "$ids" ]; then
+      local names_file="$d/n" types_file="$d/t"
+      sed -n '/attachmentTable/,/<\/table>/p' "$d/d" \
+        | grep -o 'text-align: left; ">[^<]*' \
+        | sed 's/text-align: left; ">//' > "$names_file"
+      sed -n '/attachmentTable/,/<\/table>/p' "$d/d" \
+        | grep -o 'text-align: center; width:30%">[^<]*' \
+        | sed 's/text-align: center; width:30%">//' \
+        | sed '/^$/d' > "$types_file"
+      paste <(echo "$ids") "$names_file" "$types_file" 2>/dev/null \
+        | while IFS='	' read -r did fname ftype; do
+            printf '%s\t%s\t%s\t%s\n' "$fn" "$did" "$fname" "$ftype"
+          done >> "$out_file"
     else
-      printf '%s\t\t\t\n' "$filing_no" >> "$out_file"
+      printf '%s\t\t\t\n' "$fn" >> "$out_file"
     fi
 
-    # Navigate back
-    curl_retry -s -b "$w_cookies" -c "$w_cookies" "$BASE" -o "$w_page"
-    vs=$(get_viewstate "$w_page")
+    # Reuse ViewState from detail page instead of navigating back (saves 1 RT)
+    local dv=$(get_viewstate "$d/d")
+    if [ -n "$dv" ]; then
+      vs="$dv"
+    else
+      _reinit_session
+    fi
 
-    if [ $(( i % 50 )) -eq 0 ]; then
-      log "Worker $worker_id: $i processed"
-    fi
-    if [ $(( i % 200 )) -eq 0 ]; then
-      rm -f "$w_cookies"
-      curl_retry -s -c "$w_cookies" "$BASE" -o "$w_page"
-      vs=$(get_viewstate "$w_page")
-    fi
+    [ $(( i % 50 )) -eq 0 ] && log "W$worker_id: $i done"
   done < "$shard_file"
 
-  rm -rf "$wdir"
-  log "Worker $worker_id finished ($i processed)"
+  rm -rf "$d"
+  log "W$worker_id: finished ($i)"
 }
 
 phase_documents() {
   log "Phase 2: Collecting document IDs ($WORKERS workers)"
 
   [ -f "$METADATA_CSV" ] || { log "ERROR: Run 'metadata' first"; exit 1; }
+  [ -f "$DOCS_CSV" ] || printf 'filing_no\tdoc_id\tfilename\tfile_type\n' > "$DOCS_CSV"
 
-  if [ ! -f "$DOCS_CSV" ]; then
-    printf 'filing_no\tdoc_id\tfilename\tfile_type\n' > "$DOCS_CSV"
-  fi
+  # Find remaining filings (not yet in docs.csv)
+  local remaining="$DATA_DIR/.remaining.tmp"
+  comm -23 \
+    <(tail -n +2 "$METADATA_CSV" | cut -f3 | sort -u) \
+    <(tail -n +2 "$DOCS_CSV" 2>/dev/null | cut -f1 | sort -u) \
+    > "$remaining"
 
-  # Get already-done filings
-  local done_file="$DATA_DIR/.done_filings.tmp"
-  tail -n +2 "$DOCS_CSV" 2>/dev/null | cut -f1 | sort -u > "$done_file"
+  local count=$(wc -l < "$remaining" | tr -d ' ')
+  log "$count filings remaining"
+  [ "$count" -eq 0 ] && return
 
-  # Create lockfiles for already-done filings
-  while IFS= read -r fn; do
-    [ -n "$fn" ] && mkdir -p "$DATA_DIR/.lock_${fn}" 2>/dev/null
-  done < "$done_file"
+  # Split into shards and launch workers
+  local per_shard=$(( (count + WORKERS - 1) / WORKERS ))
+  split -l "$per_shard" "$remaining" "$DATA_DIR/.shard_"
 
-  # Get remaining filings
-  local filings_file="$DATA_DIR/.all_filings.tmp"
-  tail -n +2 "$METADATA_CSV" | cut -f3 | sort -u > "$filings_file"
-  local total=$(wc -l < "$filings_file" | tr -d ' ')
-  local done_count=$(wc -l < "$done_file" | tr -d ' ')
-  log "$total total filings, $done_count already done"
-
-  # Split filings into shards for parallel workers
-  local lines_per_shard=$(( (total + WORKERS - 1) / WORKERS ))
-  split -l "$lines_per_shard" "$filings_file" "$DATA_DIR/.shard_"
-
-  # Launch workers
   local pids="" w=0
   for shard in "$DATA_DIR"/.shard_*; do
-    local out="$DATA_DIR/.docs_w${w}.tsv"
-    _documents_worker "$w" "$shard" "$done_file" "$out" &
+    _documents_worker "$w" "$shard" "$DATA_DIR/.docs_w${w}.tsv" &
     pids="$pids $!"
     w=$(( w + 1 ))
   done
 
-  log "Launched $w workers, waiting..."
-  local failed=0
-  for pid in $pids; do
-    wait "$pid" || failed=$(( failed + 1 ))
-  done
-  [ $failed -gt 0 ] && log "WARN: $failed worker(s) had errors"
+  log "Launched $w workers"
+  for pid in $pids; do wait "$pid" 2>/dev/null; done
 
-  # Merge worker outputs into docs.csv
-  for f in "$DATA_DIR"/.docs_w*.tsv; do
-    [ -f "$f" ] && cat "$f" >> "$DOCS_CSV"
-  done
+  # Merge
+  cat "$DATA_DIR"/.docs_w*.tsv >> "$DOCS_CSV" 2>/dev/null
+  rm -f "$DATA_DIR"/.shard_* "$DATA_DIR"/.docs_w*.tsv "$remaining"
 
-  # Clean up
-  rm -f "$DATA_DIR"/.shard_* "$DATA_DIR"/.docs_w*.tsv
-  rm -rf "$DATA_DIR"/.lock_*
-
-  local count=$(( $(wc -l < "$DOCS_CSV") - 1 ))
-  log "Phase 2 complete: $count document entries"
+  log "Phase 2 complete: $(( $(wc -l < "$DOCS_CSV") - 1 )) entries"
 }
 
 # --- Phase 3: Download all documents (parallel) ---
@@ -479,13 +417,15 @@ phase_download() {
   log "$total files to download"
   [ "$total" -eq 0 ] && { log "Nothing to download"; return; }
 
-  # Use xargs for simple parallelism
-  cat "$dl_list" | while IFS='	' read -r doc_id outfile; do
-    echo "$DPIMG/$doc_id" "$outfile"
-  done | xargs -P "$WORKERS" -L 1 sh -c '
-    curl --connect-timeout 15 --max-time 120 -s -L -o "$2" "$1" 2>/dev/null
-    if [ -f "$2" ] && grep -q "<html" "$2" 2>/dev/null; then rm -f "$2"; fi
-  ' _
+  # Use xargs for parallel downloads
+  awk -F'\t' -v base="$DPIMG" '{print base "/" $1 "\n  output = " $2}' "$dl_list" \
+    | curl --connect-timeout 15 --max-time 120 -s -L --parallel --parallel-max "$WORKERS" \
+           --retry 2 --config -
+
+  # Remove any HTML error pages that got saved as PDFs
+  for f in "$PDF_DIR"/*; do
+    [ -f "$f" ] && head -c 200 "$f" 2>/dev/null | grep -q '<html' && rm -f "$f"
+  done
 
   rm -f "$dl_list"
   log "Phase 3 complete"
