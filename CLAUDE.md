@@ -1,3 +1,9 @@
-# Texas RRC SWR 32 exceptions scraper
+# Texas RRC SWR 32 — Dark Flaring Analysis
 
-An extrememely minimal scraper that queries the Texas Railroad Commission (RRC) ['Application for Exception to Statewide Rule 32' tool](https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml) and downloads absolutely every PDF, both applications and approvals. It also outputs a CSV containing all the metadata and the filenames/IDs of related PDFs. Basically a clone of the system that we can easily analyse. Don't yet do anything with the PDFs themselves, e.g. parsing, just download them. Work in shell scripts as far as you can, keep it minimal and elegant.
+Combines three data sources into a DuckDB database to identify unpermitted ("dark") flaring in the Permian Basin (districts 08, 7C, 8A):
+
+1. **SWR 32 permits** — scraped from RRC public query tool (`scrape.sh`)
+2. **RRC wellbore/P-5 data** — EBCDIC files from RRC MFT server, parsed to CSV
+3. **VIIRS Nightfire (VNF)** — satellite flare detections from EOG
+
+Pipeline is Makefile-driven. All data lives under `data/` (gitignored, reproducible). `uv` manages the Python project.

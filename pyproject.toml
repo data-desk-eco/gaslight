@@ -1,0 +1,12 @@
+[project]
+name = "tx-swr32"
+version = "0.1.0"
+description = "Dark flaring analysis: SWR 32 permits vs VIIRS Nightfire detections"
+requires-python = ">=3.10"
+dependencies = [
+    "playwright",
+    "requests",
+    "beautifulsoup4",
+    "duckdb",
+    "python-dotenv",
+]
