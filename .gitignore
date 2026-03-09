@@ -1,2 +1,6 @@
 data/
 .env
+docs/.observable
+node_modules
+.DS_Store
+**/.DS_Store

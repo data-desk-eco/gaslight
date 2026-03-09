@@ -1,9 +1,17 @@
 WORKERS ?= 32
 export WORKERS
 
-.PHONY: all permits rrc vnf db metadata documents download combine clean
+.PHONY: all build preview db permits rrc vnf metadata documents download combine clean
 
 all: db
+
+# --- notebook ---
+
+build:
+	yarn build
+
+preview:
+	yarn preview
 
 # --- SWR 32 scraper ---
 
@@ -55,3 +63,4 @@ data/dark_flaring.duckdb: data/filings.csv data/wells.csv data/operators.csv dat
 
 clean:
 	rm -f data/dark_flaring.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded
+	rm -rf docs/.observable/dist

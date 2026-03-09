@@ -1,0 +1,66 @@
+<!doctype html>
+<notebook theme="midnight">
+  <title>Dark flaring in the Permian Basin</title>
+
+  <script id="header" type="text/markdown">
+    # Dark flaring in the Permian Basin
+    Satellite-detected flares without SWR 32 exception permits
+  </script>
+
+  <script id="summary" type="application/sql" database="../data/dark_flaring.duckdb">
+    SELECT is_dark,
+      count(*) AS detection_days,
+      count(DISTINCT flare_id) AS flare_sites,
+      round(avg(rh_mw), 2) AS avg_rh_mw,
+      round(sum(rh_mw), 0) AS total_rh_mw,
+      min(date) AS earliest,
+      max(date) AS latest
+    FROM dark_flares
+    GROUP BY is_dark
+  </script>
+
+  <script id="top_flares" output="topFlares" type="application/sql" database="../data/dark_flaring.duckdb">
+    SELECT flare_id, lease_district, lease_number, operator_name,
+      round(avg(vnf_lat), 4) AS lat, round(avg(vnf_lon), 4) AS lon,
+      count(*) AS detection_days, round(sum(rh_mw), 1) AS total_rh_mw,
+      min(date) AS first_seen, max(date) AS last_seen
+    FROM dark_flares
+    WHERE is_dark
+    GROUP BY flare_id, lease_district, lease_number, operator_name
+    ORDER BY total_rh_mw DESC
+    LIMIT 50
+  </script>
+
+  <script id="intro" type="text/markdown">
+    ## Method
+
+    Three public datasets are combined in a DuckDB database:
+
+    - **SWR 32 exception permits** scraped from the [Texas RRC](https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml) (${summary[0]?.detection_days ? 'covering ' + summary.reduce((s,r) => s + r.detection_days, 0).toLocaleString() + ' detection-days' : 'loading...'})
+    - **RRC well locations** parsed from EBCDIC bulk data files
+    - **VIIRS Nightfire** satellite flare detections from [EOG/NOAA](https://eogdata.mines.edu/products/vnf/)
+
+    Each satellite flare detection is spatially matched to the nearest well within 750m, then checked for a valid SWR 32 flaring permit covering that date. A "dark" flare is one with no matching permit.
+  </script>
+
+  <script id="table" type="text/markdown">
+    ## Top dark flare sites by cumulative radiant heat
+  </script>
+
+  <script id="display_table" type="module">
+    display(Inputs.table(topFlares, {
+      columns: ["flare_id", "lease_district", "lease_number", "detection_days", "total_rh_mw", "first_seen", "last_seen", "lat", "lon"],
+      header: {
+        flare_id: "Flare ID",
+        lease_district: "District",
+        lease_number: "Lease",
+        detection_days: "Days detected",
+        total_rh_mw: "Total RH (MW)",
+        first_seen: "First seen",
+        last_seen: "Last seen",
+        lat: "Lat",
+        lon: "Lon"
+      }
+    }))
+  </script>
+</notebook>
