@@ -64,4 +64,44 @@
     }));
   </script>
 
+  <script id="distances" output="distances" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
+    SELECT round(distance_km, 2) AS distance_km FROM vnf_matched
+  </script>
+
+  <script id="yearly" output="yearly" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
+    SELECT extract(year FROM date)::INTEGER AS year,
+      count(*) AS detection_days,
+      count(DISTINCT flare_id) AS sites
+    FROM dark_flares WHERE is_dark
+    GROUP BY 1 ORDER BY 1
+  </script>
+
+  <script id="distance_chart" type="module">
+    display(Plot.plot({
+      title: "Spatial match distance (VNF detection to nearest well)",
+      width: 960,
+      height: 300,
+      x: {label: "Distance (km)"},
+      y: {label: "Detections", grid: true},
+      marks: [
+        Plot.rectY(distances, Plot.binX({y: "count"}, {x: "distance_km", thresholds: 40, fill: "var(--theme-foreground-focus)"})),
+        Plot.ruleY([0])
+      ]
+    }));
+  </script>
+
+  <script id="yearly_chart" type="module">
+    display(Plot.plot({
+      title: "Unpermitted flare detections by year",
+      width: 960,
+      height: 300,
+      x: {label: "Year", tickFormat: "d"},
+      y: {label: "Detection-days", grid: true},
+      marks: [
+        Plot.barY(yearly, {x: "year", y: "detection_days", fill: "var(--theme-foreground-focus)", tip: true}),
+        Plot.ruleY([0])
+      ]
+    }));
+  </script>
+
 </notebook>
