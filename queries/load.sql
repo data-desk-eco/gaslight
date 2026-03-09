@@ -18,6 +18,12 @@ FROM read_csv('data/wells.csv', header=true, auto_detect=true);
 INSERT INTO operators
 SELECT * FROM read_csv('data/operators.csv', header=true, auto_detect=true);
 
+-- Flare locations (permitted flare GPS coordinates)
+INSERT INTO flare_locations
+SELECT *, CASE WHEN latitude != 0 AND longitude != 0
+               THEN ST_Point(longitude, latitude) END
+FROM read_csv('data/flare_locations.csv', header=true, auto_detect=true);
+
 -- VNF: read profiles with explicit types (avoids auto_detect on 1700 files)
 INSERT INTO vnf
 SELECT flare_id, AVG(lat), AVG(lon), date,
@@ -40,3 +46,4 @@ GROUP BY flare_id, date;
 UPDATE vnf SET geom = ST_Point(lon, lat) WHERE lat IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_wells_geom ON wells USING RTREE (geom);
 CREATE INDEX IF NOT EXISTS idx_vnf_geom ON vnf USING RTREE (geom);
+CREATE INDEX IF NOT EXISTS idx_flare_loc_geom ON flare_locations USING RTREE (geom);

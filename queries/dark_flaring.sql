@@ -1,21 +1,44 @@
 LOAD spatial;
 
--- Match VNF detections to nearest well within ~750m
-CREATE OR REPLACE TABLE vnf_matched AS
-WITH nearest AS (
-    SELECT v.flare_id, v.date, v.rh_mw, v.temp_k, v.lat AS vnf_lat, v.lon AS vnf_lon,
+-- Distinct flare site locations (one row per flare_id)
+CREATE OR REPLACE TEMP TABLE flare_sites AS
+SELECT flare_id, AVG(lat) AS lat, AVG(lon) AS lon, ST_Point(AVG(lon), AVG(lat)) AS geom
+FROM vnf WHERE detected GROUP BY flare_id;
+
+-- Match each flare site to nearest well within ~750m
+CREATE OR REPLACE TEMP TABLE site_well_match AS
+WITH candidates AS (
+    SELECT f.flare_id,
            w.api, w.oil_gas_code, w.lease_district, w.lease_number, w.well_number, w.operator_no,
-           ST_Distance_Sphere(v.geom, w.geom) / 1000.0 AS distance_km,
-           ROW_NUMBER() OVER (PARTITION BY v.flare_id, v.date
-                              ORDER BY ST_Distance_Sphere(v.geom, w.geom)) AS rn
-    FROM vnf v
+           ST_Distance_Sphere(f.geom, w.geom) / 1000.0 AS distance_km
+    FROM flare_sites f
     JOIN wells w ON w.geom IS NOT NULL
-        AND w.longitude BETWEEN v.lon - 0.015 AND v.lon + 0.015
-        AND w.latitude  BETWEEN v.lat - 0.015 AND v.lat + 0.015
-        AND ST_DWithin(v.geom, w.geom, 0.0075)
-    WHERE v.detected
+        AND w.longitude BETWEEN f.lon - 0.015 AND f.lon + 0.015
+        AND w.latitude  BETWEEN f.lat - 0.015 AND f.lat + 0.015
+        AND ST_DWithin(f.geom, w.geom, 0.0075)
+), nearest AS (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY flare_id ORDER BY distance_km) AS rn
+    FROM candidates
 )
 SELECT * EXCLUDE (rn) FROM nearest WHERE rn = 1;
+
+-- Match each flare site to nearest permitted flare location within ~750m
+CREATE OR REPLACE TEMP TABLE site_flare_loc_match AS
+SELECT DISTINCT f.flare_id, fl.filing_no
+FROM flare_sites f
+JOIN flare_locations fl ON fl.geom IS NOT NULL
+    AND fl.longitude BETWEEN f.lon - 0.015 AND f.lon + 0.015
+    AND fl.latitude  BETWEEN f.lat - 0.015 AND f.lat + 0.015
+    AND ST_DWithin(f.geom, fl.geom, 0.0075);
+
+-- Expand site matches to daily detections
+CREATE OR REPLACE TABLE vnf_matched AS
+SELECT v.flare_id, v.date, v.rh_mw, v.temp_k, v.lat AS vnf_lat, v.lon AS vnf_lon,
+       sw.api, sw.oil_gas_code, sw.lease_district, sw.lease_number, sw.well_number,
+       sw.operator_no, sw.distance_km
+FROM vnf v
+JOIN site_well_match sw USING (flare_id)
+WHERE v.detected;
 
 -- District mapping: wells use numeric (07,08), permits use alphanumeric (7C,8A,08)
 CREATE OR REPLACE MACRO district_match(well_d, permit_d) AS
@@ -23,32 +46,36 @@ CREATE OR REPLACE MACRO district_match(well_d, permit_d) AS
     OR (well_d = '08' AND permit_d IN ('08', '8A'))
     OR (well_d = '07' AND permit_d IN ('07', '7C', '7B'));
 
--- Join to permits — find valid SWR 32 coverage
+-- Pre-parse permit dates once
+CREATE OR REPLACE TEMP TABLE permits_parsed AS
+SELECT filing_no, property, lease_district, lease_number, operator_no,
+    TRY_STRPTIME(effective_dt, '%m/%d/%Y')::DATE AS eff_date,
+    TRY_STRPTIME(expiration_dt, '%m/%d/%Y')::DATE AS exp_date
+FROM permits WHERE status = 'Approved';
+
+-- Find valid permit coverage: lease match OR spatial match
 CREATE OR REPLACE TABLE dark_flares AS
 SELECT m.*,
-    COALESCE(
-        (SELECT o.operator_name FROM operators o
-         WHERE LPAD(o.operator_number, 6, '0') = LPAD(m.operator_no, 6, '0') LIMIT 1),
-        (SELECT o.operator_name FROM operators o
-         WHERE LPAD(o.operator_number, 6, '0') = (
-             SELECT LPAD(pp.operator_no, 6, '0') FROM permits pp
-             WHERE pp.lease_number = m.lease_number
-               AND district_match(m.lease_district, pp.lease_district) LIMIT 1
-         ) LIMIT 1)
-    ) AS operator_name,
-    p.filing_no AS permit_filing_no,
-    p.status AS permit_status,
-    p.effective_dt AS permit_effective,
-    p.expiration_dt AS permit_expiration,
-    p.property AS permit_property,
-    p.filing_no IS NULL AS is_dark
+    o.operator_name,
+    COALESCE(p.filing_no, sp_p.filing_no) AS permit_filing_no,
+    COALESCE(p.property, sp_p.property) AS permit_property,
+    COALESCE(p.eff_date, sp_p.eff_date) AS permit_effective,
+    COALESCE(p.exp_date, sp_p.exp_date) AS permit_expiration,
+    p.filing_no IS NULL AND sp_p.filing_no IS NULL AS is_dark
 FROM vnf_matched m
-LEFT JOIN permits p
+LEFT JOIN operators o
+    ON LPAD(o.operator_number, 6, '0') = LPAD(m.operator_no, 6, '0')
+LEFT JOIN permits_parsed p
     ON p.lease_number = m.lease_number
     AND district_match(m.lease_district, p.lease_district)
-    AND p.status = 'Approved'
-    AND TRY_STRPTIME(p.effective_dt, '%m/%d/%Y') <= m.date
-    AND (p.expiration_dt = '' OR TRY_STRPTIME(p.expiration_dt, '%m/%d/%Y') >= m.date);
+    AND p.eff_date <= m.date
+    AND (p.exp_date IS NULL OR p.exp_date >= m.date)
+LEFT JOIN (
+    site_flare_loc_match sl
+    JOIN permits_parsed sp_p ON sp_p.filing_no = sl.filing_no
+) ON sl.flare_id = m.flare_id
+    AND sp_p.eff_date <= m.date
+    AND (sp_p.exp_date IS NULL OR sp_p.exp_date >= m.date);
 
 CREATE OR REPLACE VIEW dark_flaring_summary AS
 SELECT is_dark,

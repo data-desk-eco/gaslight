@@ -40,6 +40,24 @@ CREATE TABLE IF NOT EXISTS operators (
     status          VARCHAR
 );
 
+-- Permitted flare/vent locations (scraped from SWR 32 detail pages)
+CREATE TABLE IF NOT EXISTS flare_locations (
+    filing_no       VARCHAR,
+    name            VARCHAR,
+    county          VARCHAR,
+    district        VARCHAR,
+    release_type    VARCHAR,
+    release_height_ft VARCHAR,
+    gps_datum       VARCHAR,
+    latitude        DOUBLE,
+    longitude       DOUBLE,
+    h2s_area        VARCHAR,
+    h2s_concentration_ppm VARCHAR,
+    h2s_distance_ft VARCHAR,
+    h2s_public_area_type VARCHAR,
+    geom            GEOMETRY
+);
+
 -- VNF daily flare detections (Permian)
 CREATE TABLE IF NOT EXISTS vnf (
     flare_id    INTEGER,
