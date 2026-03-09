@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 
 BASE = "https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml"
 DETAIL = "https://webapps.rrc.state.tx.us/swr32/pbfiling.xhtml?action=open"
-WORKERS = 4
+WORKERS = 8
 PERMIAN_DISTRICTS = {"7B", "7C", "08", "8A", "8"}
 TIMEOUT = 120
 
