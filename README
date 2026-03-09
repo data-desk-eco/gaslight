@@ -1,44 +1,81 @@
-tx-swr32: Dark Flaring Analysis
-================================
+tx-swr32: Dark Flaring & Methane Emissions
+==========================================
 
-Identifies unpermitted ("dark") flaring in the Permian Basin by
-cross-referencing three public datasets:
+Identifies unpermitted ("dark") flaring and potential venting in the
+Permian Basin by cross-referencing public datasets:
 
   1. SWR 32 exception permits — scraped from the Texas RRC
-  2. RRC well locations — parsed from EBCDIC bulk data files
+  2. RRC well locations — parsed from EBCDIC bulk data files (wellbore,
+     P-4 Schedule for current operators, P-5 organizations)
   3. VIIRS Nightfire — satellite-detected flares from EOG/NOAA
+  4. Carbon Mapper — hyperspectral methane plume detections (Tanager-1)
+  5. IMEO/MARS — multi-satellite methane plumes (UNEP)
 
-The pipeline spatially matches satellite flare detections to nearby
-wells, then checks whether those wells had valid SWR 32 flaring
-permits at the time of detection.
 
-Current results: 87 flare sites with 6,021 detection-days across
-2012-2026, none covered by an SWR 32 exception permit.
+Dark flaring analysis
+---------------------
+Spatially matches satellite flare detections to nearby wells (1km),
+then checks whether those wells had valid SWR 32 exception permits at
+the time of detection. Permit matching uses both spatial (GPS of
+permitted flare locations within 1.5km) and operator-based methods.
+Follows Earthworks "benefit of the doubt" methodology.
+
+
+Methane plume analysis
+----------------------
+Cross-references methane plume detections with VNF flare sites to
+identify potential venting (unlit flares). Each plume is classified as:
+
+  - unlit:     near a known flare site, no thermal detection (+-1 day)
+  - flaring:   near a known flare site, thermal detection confirmed
+  - wellpad:   near a well, but no known flare infrastructure
+  - unmatched: not near any well in our data
+
+Plumes are attributed to operators via the same well-matching pipeline
+as the flaring analysis.
 
 
 Setup
 -----
 Requires: uv, duckdb CLI, Playwright (chromium)
 Optional: EOG account for VNF data (credentials in .env)
+Optional: IMEO GeoJSON at ~/Tools/firedamp/plumes_data/
 
   uv sync
   uv run playwright install chromium
-  make db
 
 
-Operator linkage
------------------
-Each well now carries an operator_no extracted from the EBCDIC type 01
-root record (bytes 28-33). The analysis joins directly:
+Usage
+-----
+  make db          Full pipeline: parse, load, analyse
+  make plumes      Fetch latest CM + IMEO plume data
+  make refresh     Rebuild database from current CSVs
+  make build       Build Observable notebook
+  make preview     Local dev server
+  make clean       Remove derived data (keeps raw downloads)
 
-  wells.operator_no -> operators.operator_number -> operator_name
+  duckdb data/dark_flaring.duckdb    Query results interactively
 
-29% of dark flare detection-days resolve to a named operator via the
-current P-5 file. The remainder show as "OP#NNNNNN" — these are
-operator numbers for companies no longer in the active P-5 roster.
 
-Next steps
+Key tables
 ----------
-- Enrich operator coverage: historical P-5 files, or scrape the RRC
-  operator lookup by number to fill in names for inactive operators.
-- Aggregate by operator: rank operators by total dark flaring activity.
+  dark_flares         Daily VNF detections with permit status
+  plume_attributed    Plumes with well/operator/VNF cross-reference
+
+Key views:
+  dark_flaring_summary   Aggregate dark flaring stats
+  top_dark_flares        Top unpermitted flare sites by radiant heat
+  plume_summary          Plume counts by classification and source
+  unlit_flares           Plumes at flare sites with no thermal signal
+  top_plume_operators    Operators ranked by methane emissions
+
+
+Known limitations
+-----------------
+- Gas well district mismatch: P-4 uses districts 09/10 for Permian gas
+  wells while wellbore completion records use 07/08. Only ~20% of wells
+  have type 21 bridge records connecting the two systems.
+- SWR 32 permits in our data start Oct 2023; flare GPS coverage starts
+  ~Q2 2025 and is still backfilling.
+- ~60% of methane plumes are "unmatched" — likely midstream facilities
+  (compressor stations, gathering systems) not in our wells database.

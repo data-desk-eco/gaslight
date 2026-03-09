@@ -69,11 +69,8 @@ db: data/dark_flaring.duckdb
 data/dark_flaring.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_profiles/.done data/flare_locations.csv data/plumes_cm.csv data/plumes_imeo.csv queries/*.sql
 	@rm -f $@
 	duckdb $@ < queries/schema.sql
-	duckdb $@ < queries/plume_schema.sql
-	duckdb $@ < queries/load.sql
-	duckdb $@ < queries/load_plumes.sql
-	duckdb $@ < queries/dark_flaring.sql
-	duckdb $@ < queries/plume_analysis.sql
+	duckdb $@ < queries/flaring.sql
+	duckdb $@ < queries/plumes.sql
 	@echo "Database ready: $@"
 
 clean:

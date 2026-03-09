@@ -1,4 +1,3 @@
--- schema.sql: Dark flaring analysis database
 INSTALL spatial; LOAD spatial;
 
 -- SWR 32 exception permits
@@ -70,4 +69,18 @@ CREATE TABLE IF NOT EXISTS vnf (
     temp_k      DOUBLE,
     n_passes    INTEGER,
     geom        GEOMETRY
+);
+
+-- Methane plume detections (Carbon Mapper + IMEO)
+CREATE TABLE IF NOT EXISTS plumes (
+    plume_id        VARCHAR,
+    source          VARCHAR,
+    satellite       VARCHAR,
+    date            DATE,
+    latitude        DOUBLE,
+    longitude       DOUBLE,
+    emission_rate   DOUBLE,
+    emission_uncertainty DOUBLE,
+    sector          VARCHAR,
+    geom            GEOMETRY
 );

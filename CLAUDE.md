@@ -8,9 +8,10 @@ Dark flaring analysis for the Permian Basin. Combines SWR 32 flaring permits, RR
 - `scripts/download_rrc.py` — downloads wellbore, P-4, and P-5 EBCDIC files from RRC MFT (Playwright)
 - `scripts/parse_rrc.py` — parses EBCDIC to `wells.csv` + `operators.csv` (three-pass streaming with P-4 operator lookup)
 - `scripts/fetch_vnf.py` — fetches VNF profiles from EOG (needs `.env` with EOG credentials)
-- `queries/schema.sql` — DuckDB table definitions
-- `queries/load.sql` — loads CSVs into DuckDB, aggregates VNF to daily
-- `queries/dark_flaring.sql` — spatial join (VNF→wells) + permit matching
+- `scripts/fetch_plumes.py` — fetches Carbon Mapper + IMEO methane plume data for Permian Basin
+- `queries/schema.sql` — DuckDB table definitions (all tables)
+- `queries/flaring.sql` — loads flaring data, spatial join (VNF→wells), permit matching
+- `queries/plumes.sql` — loads CM + IMEO plumes, well attribution, VNF cross-reference
 
 ## Key details
 
@@ -21,11 +22,14 @@ Dark flaring analysis for the Permian Basin. Combines SWR 32 flaring permits, RR
 - **VNF load**: uses `all_varchar=true` instead of `auto_detect` on the 1,700 profile CSVs — much faster.
 - **Spatial join**: matches VNF detections to nearest well within ~1km using `ST_DWithin` with a coarse bounding-box pre-filter.
 - **Permit matching**: spatial (via scraped flare location GPS) + operator-based (if well operator has any active permit in compatible district). Follows Earthworks "benefit of the doubt" methodology.
+- **Methane plumes**: Carbon Mapper (Tanager-1) + IMEO/MARS (multi-satellite). Fetched via API and filtered to Permian bbox. Matched to nearest well within 1km, cross-referenced with VNF ±1 day to classify as unlit/flaring/wellpad/unmatched.
+- **IMEO source**: GeoJSON from `~/Tools/firedamp/plumes_data/unep_methanedata_detected_plumes.geojson` (manual download from methanedata.unep.org).
 
 ## Commands
 
 - `uv` manages Python deps
 - `make db` — full pipeline (download, parse, load, analyse)
+- `make plumes` — fetch latest CM + IMEO plume data
 - `make clean` — removes derived data (keeps raw downloads)
 - `duckdb data/dark_flaring.duckdb` — query results interactively
 
