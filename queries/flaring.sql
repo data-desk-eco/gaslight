@@ -19,12 +19,19 @@ INSERT INTO operators
 SELECT * FROM read_csv('data/operators.csv', header=true, auto_detect=true);
 
 -- Flare locations (permitted flare GPS coordinates)
+-- Exclude Gas Plant permits (midstream) at load time
 INSERT INTO flare_locations
-SELECT *, CASE WHEN latitude != 0 AND longitude != 0
-               THEN ST_Point(longitude, latitude) END
-FROM read_csv('data/flare_locations.csv', header=true, auto_detect=true);
+SELECT fl.*, CASE WHEN fl.latitude != 0 AND fl.longitude != 0
+                  THEN ST_Point(fl.longitude, fl.latitude) END
+FROM read_csv('data/flare_locations.csv', header=true, auto_detect=true) fl
+WHERE fl.filing_no::VARCHAR NOT IN (
+    SELECT filing_no FROM permits WHERE property_type = 'Gas Plant'
+);
 
 -- VNF: read profiles with explicit types (avoids auto_detect on 1700 files)
+-- Filter to permit era (Q4 2023+) — no permits exist before this date
+SET VARIABLE vnf_start = '2023-10-01';
+
 INSERT INTO vnf
 SELECT flare_id, AVG(lat), AVG(lon), date,
     BOOL_OR(cloud = 0) AS clear,
@@ -39,8 +46,15 @@ FROM (
     FROM read_csv('data/vnf_profiles/site_*.csv', filename=true, union_by_name=true,
                   ignore_errors=true, all_varchar=true, header=true)
     WHERE Sunlit::INTEGER = 0
+      AND Date_Mscan::DATE >= getvariable('vnf_start')
 )
 GROUP BY flare_id, date;
+
+-- Non-upstream facility exclusion zones (EPA GHGRP: gas plants, compressor stations, etc.)
+INSERT INTO excluded_facilities
+SELECT *, CASE WHEN latitude != 0 AND longitude != 0
+               THEN ST_Point(longitude, latitude) END
+FROM read_csv('data/excluded_facilities.csv', header=true, auto_detect=true);
 
 -- Geometry + indexes
 UPDATE vnf SET geom = ST_Point(lon, lat) WHERE lat IS NOT NULL;
@@ -55,9 +69,20 @@ SET VARIABLE well_radius = 0.01;
 SET VARIABLE permit_radius = 0.015;
 
 -- Distinct flare site locations (one row per flare_id)
-CREATE OR REPLACE TEMP TABLE flare_sites AS
+CREATE OR REPLACE TEMP TABLE flare_sites_all AS
 SELECT flare_id, AVG(lat) AS lat, AVG(lon) AS lon, ST_Point(AVG(lon), AVG(lat)) AS geom
 FROM vnf WHERE detected GROUP BY flare_id;
+
+-- Exclude VNF sites within 1.5km of non-upstream facilities
+-- Uses bounding box pre-filter for performance (0.015° ≈ 1.5km)
+CREATE OR REPLACE TEMP TABLE flare_sites AS
+SELECT f.* FROM flare_sites_all f
+WHERE NOT EXISTS (
+    SELECT 1 FROM excluded_facilities ef
+    WHERE ef.geom IS NOT NULL
+      AND ef.longitude BETWEEN f.lon - 0.015 AND f.lon + 0.015
+      AND ef.latitude  BETWEEN f.lat - 0.015 AND f.lat + 0.015
+);
 
 -- Match each flare site to nearest well within ~1km (for attribution)
 CREATE OR REPLACE TEMP TABLE site_well_match AS
@@ -119,11 +144,14 @@ CREATE OR REPLACE MACRO district_match(well_d, permit_d) AS
 
 -- Pre-parse permit dates (include Submitted/Hearing Pending for benefit of the doubt)
 -- Following Earthworks methodology: give operators every benefit of the doubt
+-- Exclude Gas Plant permits (midstream)
 CREATE OR REPLACE TEMP TABLE permits_parsed AS
 SELECT filing_no, property, lease_district, lease_number, operator_no,
     TRY_STRPTIME(effective_dt, '%m/%d/%Y')::DATE AS eff_date,
     TRY_STRPTIME(expiration_dt, '%m/%d/%Y')::DATE AS exp_date
-FROM permits WHERE status IN ('Approved', 'Submitted', 'Hearing Pending', 'Resubmitted');
+FROM permits
+WHERE status IN ('Approved', 'Submitted', 'Hearing Pending', 'Resubmitted')
+  AND property_type != 'Gas Plant';
 
 -- Operator-based permit matching: if the well's current operator has ANY active
 -- permit in a compatible district on that date, give benefit of the doubt

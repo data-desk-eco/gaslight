@@ -71,6 +71,17 @@ CREATE TABLE IF NOT EXISTS vnf (
     geom        GEOMETRY
 );
 
+-- Non-upstream facilities to exclude from VNF matching (EPA GHGRP)
+CREATE TABLE IF NOT EXISTS excluded_facilities (
+    facility_id     VARCHAR,
+    facility_name   VARCHAR,
+    sector          VARCHAR,
+    subsectors      VARCHAR,
+    latitude        DOUBLE,
+    longitude       DOUBLE,
+    geom            GEOMETRY
+);
+
 -- Methane plume detections (Carbon Mapper + IMEO)
 CREATE TABLE IF NOT EXISTS plumes (
     plume_id        VARCHAR,

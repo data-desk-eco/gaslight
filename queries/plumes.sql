@@ -47,7 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_plumes_geom ON plumes USING RTREE (geom);
 -- Match radius: 1km (same as VNF-to-well matching)
 SET VARIABLE plume_well_radius = 0.01;
 
--- Match each plume to nearest well within 1km
+-- Match each plume to nearest well within 1km (excluding plumes near non-upstream facilities)
 CREATE OR REPLACE TEMP TABLE plume_well_candidates AS
 SELECT p.plume_id,
        w.api, w.oil_gas_code, w.lease_district, w.lease_number, w.well_number, w.operator_no,
@@ -56,7 +56,13 @@ FROM plumes p
 JOIN wells w ON w.geom IS NOT NULL
     AND w.longitude BETWEEN p.longitude - 0.02 AND p.longitude + 0.02
     AND w.latitude  BETWEEN p.latitude  - 0.02 AND p.latitude  + 0.02
-    AND ST_DWithin(p.geom, w.geom, getvariable('plume_well_radius'));
+    AND ST_DWithin(p.geom, w.geom, getvariable('plume_well_radius'))
+WHERE NOT EXISTS (
+    SELECT 1 FROM excluded_facilities ef
+    WHERE ef.geom IS NOT NULL
+      AND ef.longitude BETWEEN p.longitude - 0.015 AND p.longitude + 0.015
+      AND ef.latitude  BETWEEN p.latitude  - 0.015 AND p.latitude  + 0.015
+);
 
 CREATE OR REPLACE TEMP TABLE plume_nearest_well AS
 SELECT * FROM (
@@ -65,11 +71,18 @@ SELECT * FROM (
 )
 WHERE rn = 1;
 
--- Cross-reference with VNF: find nearest VNF site for each plume (within 1km)
+-- Cross-reference with VNF: find nearest upstream VNF site for each plume (within 1km)
+-- Excludes sites near non-upstream facilities (same filter as flaring.sql)
 CREATE OR REPLACE TEMP TABLE plume_vnf_site AS
 WITH site_geom AS (
     SELECT flare_id, AVG(lat) AS lat, AVG(lon) AS lon, ST_Point(AVG(lon), AVG(lat)) AS geom
     FROM vnf WHERE detected GROUP BY flare_id
+    HAVING NOT EXISTS (
+        SELECT 1 FROM excluded_facilities ef
+        WHERE ef.geom IS NOT NULL
+          AND ef.longitude BETWEEN AVG(lon) - 0.015 AND AVG(lon) + 0.015
+          AND ef.latitude  BETWEEN AVG(lat) - 0.015 AND AVG(lat) + 0.015
+    )
 ),
 candidates AS (
     SELECT p.plume_id, p.date AS plume_date,

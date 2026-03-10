@@ -15,13 +15,26 @@
     SELECT * FROM top_dark_flares
   </script>
 
+  <script id="dark_by_year" output="darkByYear" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
+    SELECT flare_id,
+      extract(year FROM date)::INTEGER AS year,
+      round(avg(vnf_lat), 4) AS lat, round(avg(vnf_lon), 4) AS lon,
+      COALESCE(operator_name, 'Unknown') AS operator,
+      count(*) AS detection_days, round(sum(rh_mw), 1) AS total_rh_mw
+    FROM dark_flares WHERE is_dark
+    GROUP BY flare_id, year, operator
+  </script>
+
   <script id="by_operator" output="byOperator" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
     SELECT COALESCE(operator_name, 'Unknown') AS operator,
       count(DISTINCT flare_id) AS sites,
       count(*) AS detection_days,
-      round(sum(rh_mw), 0) AS total_rh_mw
+      round(sum(rh_mw), 0) AS total_rh_mw,
+      count(DISTINCT CASE WHEN date >= '2023-10-01' THEN flare_id END) AS permit_era_sites,
+      sum(CASE WHEN date >= '2023-10-01' THEN 1 ELSE 0 END) AS permit_era_days,
+      round(sum(CASE WHEN date >= '2023-10-01' THEN rh_mw ELSE 0 END), 0) AS permit_era_rh_mw
     FROM dark_flares WHERE is_dark
-    GROUP BY operator ORDER BY total_rh_mw DESC
+    GROUP BY operator ORDER BY permit_era_rh_mw DESC
   </script>
 
   <script id="quarterly" output="quarterly" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
@@ -42,67 +55,82 @@
     const tx = {type: "FeatureCollection", features: states.features.filter(d => d.id === "48")};
   </script>
 
+  <script id="permit_era" output="permitEra" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
+    SELECT is_dark, count(*) AS det_days, count(DISTINCT flare_id) AS sites,
+      round(sum(rh_mw), 0) AS rh
+    FROM dark_flares WHERE date >= '2023-10-01'
+    GROUP BY 1
+  </script>
+
   <script id="header" type="text/markdown">
     # Dark flaring in the Permian Basin
 
-    Satellite flare detections ([VIIRS Nightfire](https://eogdata.mines.edu/products/vnf/)) matched to the nearest RRC well (within 1km) or [permitted flare location](https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml) (within 1.5km), then checked against active SWR 32 exception permits.
+    Satellite flare detections ([VIIRS Nightfire](https://eogdata.mines.edu/products/vnf/)) matched to the nearest RRC well or [permitted flare location](https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml), then checked against active SWR 32 exception permits. Upstream production sites only — midstream gas plants, compressor stations, and refineries excluded.
 
-    **${topFlares.length} dark flare sites** with **${d3.sum(topFlares, d => d.detection_days).toLocaleString()} detection-days** of unpermitted flaring across ${d3.sum(summary.filter(d => !d.is_dark), d => d.flare_sites) + topFlares.length} total matched sites, 2012–2026.
+    **${topFlares.length} dark flare sites** with **${d3.sum(topFlares, d => d.detection_days).toLocaleString()} detection-days** of unpermitted flaring since Q4 2023. **${Math.round(100 * (permitEra.find(d => d.is_dark)?.det_days ?? 0) / d3.sum(permitEra, d => d.det_days))}%** of detection-days at matched upstream sites lack a valid SWR 32 exception permit.
+  </script>
+
+  <script id="year_select" type="module">
+    const years = Array.from(new Set(darkByYear.map(d => d.year))).sort();
+    const selectedYear = view(Inputs.range([years[0], years[years.length - 1]], {
+      step: 1, value: years[years.length - 1], label: "Year"
+    }));
   </script>
 
   <script id="map" type="module">
+    const filtered = darkByYear.filter(d => d.year === selectedYear);
+
     display(Plot.plot({
       projection: {type: "mercator", domain: {type: "MultiPoint", coordinates: [[-104.5, 30.5], [-100.0, 33.1]]}},
       width: 960,
       height: 700,
       marginTop: 10,
-      color: {scheme: "YlOrRd", type: "log", label: "Total RH (MW)", legend: true},
-      r: {range: [3, 30], type: "sqrt"},
+      color: {scheme: "YlOrRd", reverse: true, type: "log", domain: [0.1, d3.max(darkByYear, d => d.total_rh_mw)], label: "Radiant heat (MW)", legend: true},
+      r: {range: [3, 30], type: "sqrt", domain: [0.1, d3.max(darkByYear, d => d.total_rh_mw)]},
       marks: [
         Plot.geo(txCounties, {fill: "#1a1a2e", stroke: "#2a2a3e"}),
         Plot.geo(tx, {fill: "none", stroke: "#555", strokeWidth: 1.5}),
-        Plot.dot(topFlares, {
+        Plot.dot(filtered, {
           x: "lon", y: "lat",
           r: "total_rh_mw",
           fill: "total_rh_mw",
           stroke: "#fff",
           strokeWidth: 0.5,
           tip: true,
-          title: d => `${d.operator}\n${d.detection_days} days, ${d.total_rh_mw} MW\n${d.first_seen} – ${d.last_seen}`
+          title: d => `${d.operator}\n${d.detection_days} days, ${d.total_rh_mw} MW`
         })
       ]
     }));
   </script>
+
+  <script id="hr1" type="text/html"><hr></script>
 
   <script id="operator_header" type="text/markdown">
     ## Top operators by unpermitted radiant heat
   </script>
 
   <script id="operator_chart" type="module">
-    const top = byOperator.slice(0, 15);
+    const top = byOperator.filter(d => d.permit_era_days > 0).slice(0, 15);
     display(Plot.plot({
       width: 960,
       height: 400,
       marginLeft: 250,
-      x: {label: "Total radiant heat (MW)", grid: true},
+      x: {label: "Radiant heat since Q4 2023 (MW)", grid: true},
       y: {label: null},
+      color: {scheme: "YlOrRd", reverse: true, type: "log"},
       marks: [
-        Plot.barX(top, {y: "operator", x: "total_rh_mw", fill: "var(--theme-foreground-focus)", sort: {y: "-x"}, tip: true,
-          title: d => `${d.operator}\n${d.sites} sites, ${d.detection_days.toLocaleString()} detection-days`}),
+        Plot.barX(top, {y: "operator", x: "permit_era_rh_mw", fill: "permit_era_rh_mw", sort: {y: "-x"}, tip: true,
+          title: d => `${d.operator}\n${d.permit_era_sites} sites, ${d.permit_era_days.toLocaleString()} detection-days (permit era)\n${d.detection_days.toLocaleString()} total detection-days (all time)`}),
         Plot.ruleX([0])
       ]
     }));
   </script>
 
-  <script id="post2023" output="post2023" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT is_dark, count(*) AS det_days, round(sum(rh_mw), 0) AS rh
-    FROM dark_flares WHERE date >= '2023-10-01'
-    GROUP BY 1
-  </script>
+  <script id="hr2" type="text/html"><hr></script>
 
   <script id="trend_header" type="text/markdown">
     ## Quarterly trend
-    Approved SWR 32 permits in our data begin in Q4 2023. Since then, **${Math.round(100 * post2023.find(d => d.is_dark).det_days / d3.sum(post2023, d => d.det_days))}%** of detection-days at matched sites remain unpermitted.
+    Approved SWR 32 permits in our data begin in Q4 2023. Since then, **${Math.round(100 * (permitEra.find(d => d.is_dark)?.det_days ?? 0) / d3.sum(permitEra, d => d.det_days))}%** of detection-days at matched upstream sites remain unpermitted.
   </script>
 
   <script id="quarterly_chart" type="module">
@@ -111,14 +139,16 @@
       height: 350,
       x: {label: null},
       y: {label: "Detection-days", grid: true},
-      color: {domain: [true, false], range: ["var(--theme-foreground-focus)", "#4a4"], legend: true,
+      color: {domain: [false, true], range: ["#f5deb3", "#e25822"], legend: true,
         tickFormat: d => d ? "Dark" : "Permitted"},
       marks: [
-        Plot.rectY(quarterly, {x: "quarter", interval: "quarter", y: "detection_days", fill: "is_dark", tip: true}),
+        Plot.rectY(quarterly, Plot.stackY({order: (d) => d.is_dark ? 1 : 0, x: "quarter", interval: "quarter", y: "detection_days", fill: "is_dark", tip: true})),
         Plot.ruleY([0])
       ]
     }));
   </script>
+
+  <script id="hr3" type="text/html"><hr></script>
 
   <script id="yearly" output="yearly" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
     SELECT extract(year FROM date)::INTEGER AS year,
@@ -137,106 +167,12 @@
       x: {label: "Year", tickFormat: "d"},
       y: {label: "Detection-days", grid: true},
       marks: [
-        Plot.barY(yearly, {x: "year", y: "detection_days", fill: "var(--theme-foreground-focus)", tip: true,
+        Plot.barY(yearly, {x: "year", y: "detection_days", fill: "#e25822", tip: true,
           title: d => `${d.year}: ${d.detection_days.toLocaleString()} detection-days\n${d.sites} sites, ${d.total_rh_mw.toLocaleString()} MW`}),
         Plot.ruleY([0])
       ]
     }));
   </script>
 
-  <script id="plume_summary_data" output="plumeSummary" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT classification,
-      count(*) AS plume_count,
-      round(sum(emission_rate), 0) AS total_emission,
-      round(avg(emission_rate), 1) AS avg_emission,
-      min(date) AS earliest, max(date) AS latest
-    FROM plume_attributed
-    GROUP BY classification
-    ORDER BY total_emission DESC
-  </script>
-
-  <script id="unlit_data" output="unlitFlares" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT plume_id, date, latitude AS lat, longitude AS lon,
-      emission_rate, source, satellite,
-      COALESCE(operator_name, 'Unknown') AS operator,
-      vnf_flare_id, well_distance_km
-    FROM plume_attributed
-    WHERE classification = 'unlit'
-    ORDER BY emission_rate DESC
-  </script>
-
-  <script id="plume_operators_data" output="plumeOperators" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT * FROM top_plume_operators
-  </script>
-
-  <script id="plume_section_header" type="text/markdown">
-    ## Methane plumes
-
-    Satellite methane plume detections from [Carbon Mapper](https://carbonmapper.org/) and [IMEO/MARS](https://methanedata.unep.org/), spatially matched to RRC wells and cross-referenced with VIIRS Nightfire flare detections. Plumes near known flare sites *without* a concurrent thermal detection suggest **unlit flares** (venting).
-
-    **${unlitFlares.length} potential unlit flares** detected — methane plumes at flare infrastructure with no thermal signature.
-  </script>
-
-  <script id="plume_classification_chart" type="module">
-    display(Plot.plot({
-      title: "Methane plumes by classification",
-      width: 960,
-      height: 300,
-      x: {label: "Total methane emission rate (kg/hr)"},
-      y: {label: null},
-      color: {domain: ["unlit", "flaring", "wellpad", "unmatched"], range: ["#e63946", "#f4a261", "#457b9d", "#aaa"]},
-      marks: [
-        Plot.barX(plumeSummary, {y: "classification", x: "total_emission", fill: "classification", sort: {y: "-x"}, tip: true,
-          title: d => `${d.classification}: ${d.plume_count} plumes\n${d.total_emission.toLocaleString()} kg/hr total`}),
-        Plot.ruleX([0])
-      ]
-    }));
-  </script>
-
-  <script id="unlit_map" type="module">
-    if (unlitFlares.length > 0) {
-      display(Plot.plot({
-        title: "Potential unlit flares (methane plumes at flare sites with no thermal detection)",
-        projection: {type: "mercator", domain: {type: "MultiPoint", coordinates: [[-104.5, 30.5], [-100.0, 33.1]]}},
-        width: 960,
-        height: 700,
-        color: {scheme: "Reds", type: "log", label: "Emission rate (kg/hr)", legend: true},
-        r: {range: [4, 25], type: "sqrt"},
-        marks: [
-          Plot.geo(txCounties, {fill: "#1a1a2e", stroke: "#2a2a3e"}),
-          Plot.geo(tx, {fill: "none", stroke: "#555", strokeWidth: 1.5}),
-          Plot.dot(unlitFlares, {
-            x: "lon", y: "lat",
-            r: "emission_rate",
-            fill: "emission_rate",
-            stroke: "#fff",
-            strokeWidth: 0.5,
-            tip: true,
-            title: d => `${d.operator}\n${d.emission_rate} kg/hr\n${d.satellite}\n${d.date}`
-          })
-        ]
-      }));
-    }
-  </script>
-
-  <script id="plume_operator_header" type="text/markdown">
-    ### Top operators by methane emissions
-  </script>
-
-  <script id="plume_operator_chart" type="module">
-    const topPlumeOps = plumeOperators.filter(d => d.operator !== 'Unknown').slice(0, 15);
-    display(Plot.plot({
-      width: 960,
-      height: 400,
-      marginLeft: 250,
-      x: {label: "Total emission rate (kg/hr)", grid: true},
-      y: {label: null},
-      marks: [
-        Plot.barX(topPlumeOps, {y: "operator", x: "total_emission_kg_hr", fill: "var(--theme-foreground-focus)", sort: {y: "-x"}, tip: true,
-          title: d => `${d.operator}\n${d.plume_count} plumes (${d.unlit_count} unlit, ${d.flaring_count} flaring)\n${d.well_sites} well sites`}),
-        Plot.ruleX([0])
-      ]
-    }));
-  </script>
 
 </notebook>

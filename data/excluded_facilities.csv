@@ -1,0 +1,237 @@
+facility_id,facility_name,sector,subsectors,latitude,longitude
+1000403,Gold Bond - ROT Plant,Minerals,C_MINERAL,32.83646,-100.44889
+1000419,C. R. Wing Cogeneration Plant,Power Plants,D,32.2722,-101.4222
+1000470,"Mustang Station Units 4, 5 & 6",Power Plants,D,32.9748,-102.7432
+1000481,Quail Run Energy Center,Power Plants,D,31.8414,-102.315
+1000604,Big Spring Carbon Black Plant,Chemicals,X,32.273133,-101.405326
+1001132,BLOCK 31 GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",31.4417,-102.462
+1001305,Mustang Station,Power Plants,D,32.9728,-102.7417
+1001365,Odessa-Ector Generating Station,Power Plants,D,31.8378,-102.3278
+1001638,Midkiff Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.502598,-101.911987
+1001641,TARGA BOYD COMPRESSOR STATION,Petroleum and Natural Gas Systems,W_Other,31.488611,-101.646111
+1001767,Headlee Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.9626279,-102.3807553
+1001806,SEMINOLE GAS PROCESSING PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",32.7578,-102.681
+1001990,"EPNG Station 6339 Keystone, TX",Petroleum and Natural Gas Systems,"W4,W_Other",31.9499,-103.1085
+1002325,BENEDUM GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",31.362088,-101.77962
+1002326,EAST VEALMOOR GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",32.494444,-101.35222
+1002334,Jameson Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",32.0488,-100.6821
+1002375,FULLERTON GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",32.381672,-102.788063
+1002378,SOUTHWEST OZONA GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",30.4462,-101.4674
+1002381,SPRABERRY GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",31.854713,-101.798988
+1002416,ANDECTOR BOOSTER STATION,Petroleum and Natural Gas Systems,W_Other,32.0414,-102.6808
+1002420,WEST WADDELL BOOSTER,Petroleum and Natural Gas Systems,W_Other,31.509,-102.6464
+1002422,OZONA GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",30.6817,-101.2173
+1002451,Mallet CO2 Recovery Plant,Petroleum and Natural Gas Systems,"W3,W_Other",33.46028,-102.56333
+1002454,SALT CREEK FIELD GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",33.1351,-100.5208
+1002487,REINECKE SITE,Petroleum and Natural Gas Systems,"W3,W_Other",32.568611,-101.257222
+1002495,YATES GAS PLANT,Other,"C_OTHER,W3",30.927832,-102.026135
+1002509,Charter Waste Landfill,Waste,HH,31.770001,-102.5
+1002538,City of Midland MSW Landfill,Waste,HH,32.00004,-102.07569
+1002625,SLAUGHTER GASOLINE PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",33.464722,-102.554994
+1002629,WASSON CO2 REMOVAL PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",32.99825,-102.81518
+1002630,WILLARD CO2 SEPARATION PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",33.02778,-102.81972
+1002668,PEGASUS GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",31.6615,-102.1383
+1002678,SACROC CO2 TREATMENT,Petroleum and Natural Gas Systems,"W3,W_Other",32.74751,-100.95855
+1002680,SNYDER GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",32.747699,-100.923444
+1002700,CITY OF SNYDER LANDFILL,Waste,HH,32.683427,-100.81364
+1002868,NORTH CROSS COMP STATION 4,Petroleum and Natural Gas Systems,"W3,W_Other",31.10944,-102.298058
+1003044,SAN ANGELO LANDFILL,Waste,HH,31.505472,-100.39063
+1003128,Terrell Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",30.3736,-101.8433
+1003250,WAHA CMP STN,Petroleum and Natural Gas Systems,W4,31.273056,-103.07222
+1003346,Sterling Gas Plant,Petroleum and Natural Gas Systems,W3,31.970278,-101.236111
+1003347,Mertzon Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.25577,-100.89031
+1003682,WTX - CS Red River CS No. 2 (Lamesa),Petroleum and Natural Gas Systems,W4,32.7047222,-102.1805556
+1003766,Targa Midstream Services LLC - Waddell Compressor Station,Petroleum and Natural Gas Systems,W_Other,31.51513611,-102.538705
+1003767,Sand Hills Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.409312,-102.415134
+1004212,SIERRA MADERA COMPRESSION FACILITY,Other,C_OTHER,30.636111,-101.935556
+1004217,Yucca Compressor Station,Petroleum and Natural Gas Systems,W_Other,30.455658,-102.719719
+1004248,Gomez Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",30.973061,-102.97139
+1004250,Mitchell Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",30.670556,-102.49333
+1004294,GREY RANCH TREATING PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",30.5541,-102.4411
+1004297,MITCHELL COMPRESSOR STATION,Other,C_OTHER,30.671543,-102.48981
+1004299,PIKES PEAK GAS PLANT,Petroleum and Natural Gas Systems,W3,30.638111,-102.943139
+1004301,Century Gas Plant,Petroleum and Natural Gas Systems,W3,30.610401,-102.579371
+1004338,Diamond Y Compressor Station,Petroleum and Natural Gas Systems,W_Other,30.856835,-102.759485
+1004827,Waha Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.159975,-103.104845
+1005084,Sonora Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",30.299814,-100.644769
+1005181,Keystone Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.946927,-103.043207
+1005215,Mivida Treater Plant,Petroleum and Natural Gas Systems,W3,31.5225,-103.465278
+1005691,Waha Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.2684,-103.0862
+1005692,Western Pyote Compressor Station,Petroleum and Natural Gas Systems,"W4,W_Other",31.504705,-103.139435
+1005815,OZONA CMP STN,Petroleum and Natural Gas Systems,W4,30.6327,-101.07121
+1005858,DENVER UNIT CO 2 RECOVERY PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",32.98019,-102.8172
+1006110,"Lone Star Industries, Inc. /dba/ BUZZI UNICEM USA",Minerals,H,32.25,-100.458333
+1006125,SALE RANCH GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",32.210942,-101.935155
+1006160,MidMar West Gas Plant,Petroleum and Natural Gas Systems,W3,32.283891,-102.851484
+1006311,SONORA GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",30.56,-100.5881
+1006363,"GCC Permian, LLC",Minerals,H,31.745833,-102.546661
+1006392,JEB Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.33556,-101.797218
+1006800,GOLDSMITH GAS PLANT,Petroleum and Natural Gas Systems,"W3,W_Other",31.9809,-102.6344
+1006961,BIG SPRING REFINERY,Refineries,"TT,Y",32.269104,-101.417673
+1006965,United States Gypsum Company of Sweetwater,Minerals,C_MINERAL,32.4915,-100.3614
+1007104,Coyanosa Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.190833,-102.989444
+1007155,Permian Basin,Power Plants,D,31.5839,-102.9636
+1007234,Targa Midstream Services LLC - L&H Compressor Station,Petroleum and Natural Gas Systems,W_Other,31.5107284988,-102.65126369
+1007537,Halley Plant / Compressor Station,Petroleum and Natural Gas Systems,W3,31.747395,-102.851484
+1007697,G P GYPSUM SWEETWATER WALLBOARD PLANT,Minerals,C_MINERAL,32.480516,-100.336402
+1007734,Terrell Compressor Station,Other,C_OTHER,30.366667,-101.833333
+1007779,Tippett Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.037615,-102.222303
+1007784,Morgan Creek,Power Plants,D,32.3358,-100.9158
+1008217,Roberts Ranch Gas Plant,Petroleum and Natural Gas Systems,W3,31.7822,-102.2472
+1008240,"EPNG Station 6348 Plains, TX",Petroleum and Natural Gas Systems,W4,32.9861,-102.75013
+1008368,"EPNG Station 6398, Wink, TX",Petroleum and Natural Gas Systems,W4,31.748845,-103.162501
+1008970,Sonora Compressor Station,Petroleum and Natural Gas Systems,W4,30.2993,-100.6465
+1009054,Dollarhide Gas Plant,Petroleum and Natural Gas Systems,W3,32.14444,-103.054
+1009520,Hobbs Fractionation Facility,Petroleum and Natural Gas Systems,"W3,W_Other",32.778936,-102.950165
+1009524,Mesquite III Compressor Station,Petroleum and Natural Gas Systems,W_Other,30.458039,-102.791567
+1009986,Apache Corp. Permian - Crane Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",32.03544,-102.08652
+1010244,Avalon CGF 2,Petroleum and Natural Gas Systems,W_Other,31.92159,-103.76169
+1010268,Avalon CGF 4,Petroleum and Natural Gas Systems,W_Other,31.89174,-103.67283
+1010298,Avalon CGF 3,Petroleum and Natural Gas Systems,W_Other,31.93325,-103.70842
+1010335,Avalon CGF 1,Petroleum and Natural Gas Systems,W_Other,31.87186,-103.70185
+1010351,Rawhide Gas Plant,Petroleum and Natural Gas Systems,W3,32.0139,-101.2789
+1010471,Averitt Booster,Petroleum and Natural Gas Systems,W_Other,31.7791,-102.3068
+1010472,Cross Barr Booster Station,Petroleum and Natural Gas Systems,W_Other,31.58862337,-102.2316674
+1010634,Deadwood Cryo Plant,Petroleum and Natural Gas Systems,W3,31.80809,-101.55907
+1010691,Red Bluff Processing Plant,Petroleum and Natural Gas Systems,W3,31.877504,-103.937602
+1010768,Ramsey Gas Plant,Petroleum and Natural Gas Systems,W3,31.877504,-103.937602
+1010780,Driver/Johnson Gas Plant,Petroleum and Natural Gas Systems,W3,31.502598,-101.911987
+1010959,Sonora Gas Plant,Petroleum and Natural Gas Systems,W3,31.361795,-101.776403
+1011115,"West Texas Gas, Inc.",Petroleum and Natural Gas Systems,W8,31.99906,-102.07688
+1011127,NORTHERN NATURAL GAS - BROWNFIELD,Petroleum and Natural Gas Systems,W4,33.3255,-102.2965
+1011189,Stateline Compressor Station,Petroleum and Natural Gas Systems,"W4,W_Other",31.9997413,-103.9848189
+1011311,Bones Springs Plant,Petroleum and Natural Gas Systems,W3,31.455605,-103.393389
+1011365,Rebel Gas Plant,Petroleum and Natural Gas Systems,W3,31.887547,-101.7019975
+1011446,Knott Booster,Petroleum and Natural Gas Systems,W_Other,32.342222,-101.570833
+1011459,TARGA EDWARD GAS PROCESSING PLANT,Petroleum and Natural Gas Systems,W3,31.33891,-101.80057
+1011509,Targa Midstream Services LLC - Railway Ranch Compressor Station,Petroleum and Natural Gas Systems,W3,31.6529,-102.2616
+1011510,High Plains/Hopson Gas Plant,Petroleum and Natural Gas Systems,W3,31.853619,-101.790614
+1011523,Targa Midstream Services LLC - Ponderosa Compressor Station,Petroleum and Natural Gas Systems,W_Other,31.50074137,-102.5964458
+1011539,TARGA DUSEK COMPRESSOR STATION,Petroleum and Natural Gas Systems,W_Other,31.6554536,-101.9907888
+1011540,TARGA HUTT BOOSTER STATION,Petroleum and Natural Gas Systems,W_Other,31.78795,-101.961638
+1011544,Delaware Compressor Station,Petroleum and Natural Gas Systems,W_Other,31.59566,-104.07326
+1011556,TARGA COLE RANCH COMPRESSOR STATION,Petroleum and Natural Gas Systems,W_Other,31.732689,-101.605147
+1011557,TARGA COX COMPRESSOR STATION,Petroleum and Natural Gas Systems,W_Other,31.631501,-101.51353
+1011558,Pembrook Gas Plant,Petroleum and Natural Gas Systems,"W3,W_Other",31.632682,-101.843305
+1011670,Silver Plant,Petroleum and Natural Gas Systems,W3,32.011814,-101.022991
+1011695,Munson Plant,Petroleum and Natural Gas Systems,W3,31.158936,-101.096615
+1011717,Barnhart Compressor Station,Petroleum and Natural Gas Systems,W4,31.146135,-101.270876
+1011722,MidMar East Gas Plant,Petroleum and Natural Gas Systems,W3,32.177972,-102.194031
+1011812,RKI Stateline Compressor Station,Petroleum and Natural Gas Systems,W_Other,31.984376,-103.868783
+1011878,Goodrich Booster Station,Petroleum and Natural Gas Systems,W_Other,32.146768,-101.930319
+1011896,Ector County Energy Center,Power Plants,D,32.070729,-102.587361
+1011930,Pecos Gas Processing Plant,Petroleum and Natural Gas Systems,W3,31.39066,-103.48953
+1011931,James Lake Gas Plant,Petroleum and Natural Gas Systems,W3,31.9636,-102.6018
+1011970,TARGA ROCKER B COMPRESSOR STATION,Petroleum and Natural Gas Systems,W_Other,31.26942,-101.389
+1012011,Northern Natural Gas Company - Seminole,Petroleum and Natural Gas Systems,W4,32.979657,-102.819714
+1012153,"EPNG Station 6399 Black River, TX",Petroleum and Natural Gas Systems,W4,30.7444469,-102.491284
+1012161,Hidalgo Cryogenic Gas Plant,Petroleum and Natural Gas Systems,W3,31.833072,-104.241394
+1012321,"Pioneer Natural Resources USA, Inc. Permian",Petroleum and Natural Gas Systems,W9,32.0338030904124,-102.085664702606
+1012432,Durango Midstream - Permian Basin Gathering & Boosting,Petroleum and Natural Gas Systems,W9,32.8146,-103.7705
+1012445,"Davis Gas Processing, Inc. 430 Permian Basin GB",Petroleum and Natural Gas Systems,W9,31.99906,-102.07688
+1012446,"WTG Jameson, L.P. 430 Permian Basin GB",Petroleum and Natural Gas Systems,W9,31.99906,-102.07688
+1012457,"WTG Gas Processing, LLC 430 Permian Basin GB",Petroleum and Natural Gas Systems,W9,31.99906,-102.07688
+1012461,WTG South Permian Midstream LLC 430 Permian Basin GB,Petroleum and Natural Gas Systems,W9,31.99906,-102.07688
+1012465,Buffalo Gas Plant,Petroleum and Natural Gas Systems,W3,32.1309623,-101.8015688
+1012519,Delaware Basin Gas Plant,Petroleum and Natural Gas Systems,W3,31.2407567,-103.065333
+1012541,XTO Energy Inc 430 Permian  GB,Petroleum and Natural Gas Systems,W9,31.99954,-102.0797
+1012551,"OXY USA Inc., Permian Basin G&B - 430",Petroleum and Natural Gas Systems,W9,31.99267,-102.16366
+1012555,"DGP Taurus Field Services, L.P. 425 Bend Arch GB",Petroleum and Natural Gas Systems,W9,31.99906,-102.07688
+1012558,Kinder Morgan Production 430 Permian Basin GB,Petroleum and Natural Gas Systems,W9,32.02994,-102.08741
+1012603,Slant Operating LLC,Petroleum and Natural Gas Systems,W9,31.99747,-102.07785
+1012632,CR Permian Basin #430 G&B,Petroleum and Natural Gas Systems,W9,31.6428,-103.8597
+1012675,East Toyah Gas Processing Plant,Petroleum and Natural Gas Systems,W3,31.36258,-103.68639
+1012676,ECMV Gathering and Compression,Petroleum and Natural Gas Systems,W9,31.3511246,-103.6362715
+1012781,Lobo Processing Plant,Petroleum and Natural Gas Systems,W3,31.75048,-103.50753
+1012788,Bearkat Cryogenic Plant,Petroleum and Natural Gas Systems,W3,31.960698,-101.4902
+1012809,Riptide Gas Plant,Petroleum and Natural Gas Systems,W3,32.2422,-101.9044
+1012845,Loving Gas Plant,Petroleum and Natural Gas Systems,W3,31.81881,-103.6594267
+1012897,Waha Header,Petroleum and Natural Gas Systems,W4,31.274684,-103.096723
+1012898,Dakota Central Processing Facility,Petroleum and Natural Gas Systems,W3,31.16137,-103.87081
+1012899,Cherokee Central Processing Facility,Petroleum and Natural Gas Systems,W3,31.3458085,-103.8911999
+1012900,Cheyenne Central Processing Facility,Petroleum and Natural Gas Systems,W3,30.985585,-103.744702
+1012901,Panther Gas Plant,Petroleum and Natural Gas Systems,W3,31.641115,-102.193757
+1012905,Redwood Central Processing Facility,Petroleum and Natural Gas Systems,W3,31.251762,-103.91959
+1012906,Arrowhead Gas Plant,Petroleum and Natural Gas Systems,W3,31.2403011,-103.065333
+1012922,Alpine High Pipeline,Petroleum and Natural Gas Systems,W10,32.0344725722637,-102.088028818375
+1012975,Sweetwater Compressor Station,Petroleum and Natural Gas Systems,W4,32.202639,-100.49718
+1012983,Brazos Midstream - Comanche Plant,Petroleum and Natural Gas Systems,W3,31.324233,-103.223179
+1013052,Newberry Gas Plant,Petroleum and Natural Gas Systems,W3,31.852716,-101.777816
+1013079,Pecos Bend Gas Processing Plant,Petroleum and Natural Gas Systems,W3,31.498264,-103.526652
+1013183,Wildcat Gas Plant,Petroleum and Natural Gas Systems,W3,31.804744,-103.239075
+1013185,Oahu Gas Plant,Petroleum and Natural Gas Systems,W3,31.242421,-103.067545
+1013191,Sand Bluff Substation,Other,DD,32.0035,-101.2729
+1013198,Red Bluff Express Compressor Station,Petroleum and Natural Gas Systems,W4,31.726877,-103.782665
+1013207,Bearkat Substation,Other,DD,31.766,-101.5312
+1013209,Faraday Substation,Other,DD,32.6479,-101.3971
+1013210,Grelton Substation,Other,DD,32.1664,-101.8815
+1013211,Long Draw Substation,Other,DD,32.7213,-101.633
+1013266,Caymus Plant,Petroleum and Natural Gas Systems,W3,31.3353,-103.0281
+1013274,Hi-Crush Permian Sands LLC Kermit Plant,Other,C_OTHER,31.861187,-103.092717
+1013350,Delaware Basin Gas Processing Plant,Petroleum and Natural Gas Systems,W3,31.8245113470434,-103.910507227236
+1013368,Gateway Gathering Station,Petroleum and Natural Gas Systems,W9,31.931,-103.6267
+1013388,Altus Gathering and Boosting,Petroleum and Natural Gas Systems,W9,32.0344907625549,-102.087996631866
+1013398,Garden City Compressor Station,Petroleum and Natural Gas Systems,W4,32.253125,-101.476358
+1013400,Orla Gas Plant,Petroleum and Natural Gas Systems,W3,31.809405,-103.895227
+1013418,Sierra Grande Gas Processing Plant,Petroleum and Natural Gas Systems,W3,31.791256,-104.108766
+1013511,Falcon Gas Plant,Petroleum and Natural Gas Systems,W3,31.9816,-104.065
+1013544,Diamond Cryo,Petroleum and Natural Gas Systems,W3,31.00388,-103.754971
+1013556,"GCX Rankin Compressor Station, TX",Petroleum and Natural Gas Systems,W4,31.16689129,-101.78310564
+1013557,"GCX Waha Compressor Station, TX",Petroleum and Natural Gas Systems,W4,31.26859901,-103.06529395
+1013558,Mentone Gas Plant,Petroleum and Natural Gas Systems,W3,31.786111,-103.680555
+1013609,Campo Viejo Gas Processing Plant,Petroleum and Natural Gas Systems,W3,33.149918,-102.991166
+1013612,WTG North Permian Midstream LLC 430 Permian Basin GB,Petroleum and Natural Gas Systems,W9,31.999241,-102.077096
+1013616,Hi-Crush Inc. - Kermit Plant North,Other,C_OTHER,31.924211,-103.085533
+1013662,Taylor Gas Plant,Petroleum and Natural Gas Systems,W3,31.845394,-101.775884
+1013681,Pecos River Compressor Station,Petroleum and Natural Gas Systems,W4,30.300424,-100.644643
+1013688,Grey Ranch,Petroleum and Natural Gas Systems,W4,30.91027,-102.873358
+1013701,30-30 Gas Plant,Petroleum and Natural Gas Systems,W3,33.05188,-102.88792
+1013724,SCM Pecos Gas Processing Plant,Petroleum and Natural Gas Systems,W3,31.361829,-103.682383
+1013726,OWT CS Ector County Compressor Station,Petroleum and Natural Gas Systems,W4,31.847557,-102.445737
+1013737,APR - Basin 430 - Gathering & Boosting,Petroleum and Natural Gas Systems,W9,31.99954,-102.07847
+1013786,Peregrine Gas Plant,Petroleum and Natural Gas Systems,W3,31.82524,-103.90894
+1013787,Gateway/Heim Gas Plant,Petroleum and Natural Gas Systems,W3,31.644859,-101.63231
+1013788,Sale Ranch Gas Plant,Petroleum and Natural Gas Systems,W3,32.2225894980154,-101.903378840676
+1013789,Martin County Gas Plant,Petroleum and Natural Gas Systems,W3,32.15462,-101.931846
+1013814,Tornado Gas Plant,Petroleum and Natural Gas Systems,W3,31.982053,-103.704396
+1013840,PHP Coyanosa Compressor Station,Petroleum and Natural Gas Systems,W4,31.2624837146043,-103.031313904478
+1013841,PHP Big Lake Compressor Station,Petroleum and Natural Gas Systems,W4,31.110533,-101.569087
+1013842,PHP Junction Compressor Station,Petroleum and Natural Gas Systems,W4,30.713275,-100.108222
+1013867,St. Lawrence Gas Plant,Petroleum and Natural Gas Systems,W3,31.831525,-101.682689
+1013883,Bakersfield Compressor Station,Petroleum and Natural Gas Systems,W4,30.8956323568249,-102.888621619279
+1013886,Gaines County Crossover Compressor Station,Petroleum and Natural Gas Systems,W4,32.75497,-102.52418
+1013892,Bpx Energy Permian Basin Gathering & Boosting,Petroleum and Natural Gas Systems,W9,31.8596,-104.01947
+1013904,Big Lake Cryo Plant,Petroleum and Natural Gas Systems,W3,31.109673,-101.363489
+1013932,Mentone Gas Plant,Petroleum and Natural Gas Systems,W3,31.775218,-103.622565
+1013952,Collegiate Midstream LLC,Petroleum and Natural Gas Systems,W9,31.99741,-102.07963
+1013973,Trident Gas Plant,Petroleum and Natural Gas Systems,W3,31.8877865875589,-101.700753014811
+1014093,Rankin Compressor Station,Petroleum and Natural Gas Systems,W4,31.163106,-101.782857
+1014094,Waha Compressor Station,Petroleum and Natural Gas Systems,W4,31.2712560062575,-103.100518535596
+1014278,Atlas Sand Monahans,Other,C_OTHER,31.8113034146526,-103.073080593196
+1014281,Atlas Sand Kermit,Other,C_OTHER,31.9459903835627,-103.009422789116
+1014335,Cardinal Delaware Basin - Pecos Gas Plant,Petroleum and Natural Gas Systems,W3,31.82524,-103.90894
+1014346,Kermit Compressor Station,Petroleum and Natural Gas Systems,W4,31.8107687754439,-103.073608433298
+1014353,"Scurry Midstream, LLC G&P",Petroleum and Natural Gas Systems,W9,32.5845727762739,-100.763358060686
+1014362,WHITE WING GAS PROCESSING PLANT,Petroleum and Natural Gas Systems,W3,32.584353,-100.763944
+1014368,County Line Processing Plant,Petroleum and Natural Gas Systems,W3,31.870244,-103.868664
+1014376,Longwood RB Pipeline - Permian,Petroleum and Natural Gas Systems,W9,32.043601,-103.759299
+1014394,Pinnacle Dos Picos Pintail Compressor Station,Petroleum and Natural Gas Systems,W9,31.8988,-101.9099
+1014402,Pinnacle Dos Picos Thunderbird Compressor Station,Petroleum and Natural Gas Systems,W9,32.00972,-101.91973
+1014485,Legacy Gas Plant,Petroleum and Natural Gas Systems,W3,31.6749058113453,-101.987503377436
+1014587,Mhos Substation,Other,DD,32.9063518619655,-101.0075022112
+1014588,Bernoulli Substation,Other,DD,31.7991,-101.4662
+1014627,Covia Crane Facility,Other,C_OTHER,31.4794328744195,-102.70315038642
+1014638,Covia Kermit Facility,Other,C_OTHER,31.9356595850447,-102.983836882325
+1014688,Caballo Loco Midstream,Petroleum and Natural Gas Systems,W9,31.0612888,-102.3184307
+1014702,Mustang Springs G&B System,Petroleum and Natural Gas Systems,W9,32.357407029851,-101.974057659971
+1014729,Tiger Plant,Petroleum and Natural Gas Systems,W3,31.992757,-104.05647
+1014794,Red Lake Gas Plant,Petroleum and Natural Gas Systems,W3,32.329555553947,-101.831483965874
+1014813,Bakersfield Compressor Station,Petroleum and Natural Gas Systems,W4,30.845,-102.1956
+1014814,Nova Prime Substation,Other,DD,33.352005282117,-100.982567528662
+1014816,Grey Wolf Gas Plant,Petroleum and Natural Gas Systems,W3,31.7951,-103.2587
+1014817,Bear Gas Plant,Petroleum and Natural Gas Systems,W3,31.7746,-103.9021
+1014818,OZONA COMPRESSOR STATION,Petroleum and Natural Gas Systems,W4,30.56913,-101.1757
+1014825,Greenwood Gas Plant,Petroleum and Natural Gas Systems,W3,31.9708,-101.8914
+1014826,Midway Gas Plant,Petroleum and Natural Gas Systems,W3,31.499865,-102.641279
+1014908,Pinnacle Dos Picos Blackhawk Compressor Station,Petroleum and Natural Gas Systems,W9,31.806685,-101.784952
+1014914,Pinnacle Dos Picos Gas Plant,Petroleum and Natural Gas Systems,W3,31.88345,-101.87142
