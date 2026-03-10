@@ -163,31 +163,5 @@
     }));
   </script>
 
-  <script id="hr3" type="text/html"><hr></script>
-
-  <script id="yearly" output="yearly" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT extract(year FROM date)::INTEGER AS year,
-      count(*) AS detection_days,
-      count(DISTINCT flare_id) AS sites,
-      round(sum(rh_mw), 0) AS total_rh_mw
-    FROM dark_flares WHERE is_dark
-    GROUP BY 1 ORDER BY 1
-  </script>
-
-  <script id="yearly_chart" type="module">
-    display(Plot.plot({
-      title: "Unpermitted flare detections by year",
-      width: 960,
-      height: 300,
-      x: {label: "Year", tickFormat: "d"},
-      y: {label: "Detection-days", grid: true},
-      marks: [
-        Plot.barY(yearly, {x: "year", y: "detection_days", fill: "#e25822", tip: true,
-          title: d => `${d.year}: ${d.detection_days.toLocaleString()} detection-days\n${d.sites} sites, ${d.total_rh_mw.toLocaleString()} MW`}),
-        Plot.ruleY([0])
-      ]
-    }));
-  </script>
-
 
 </notebook>
