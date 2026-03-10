@@ -4,7 +4,8 @@
 Paginates through search results at:
   https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml
 
-Outputs data/filings.csv (tab-delimited).
+Outputs data/filings.csv (tab-delimited). Resumable — skips filings already
+in the output file.
 """
 
 import re
@@ -20,7 +21,8 @@ from bs4 import BeautifulSoup
 BASE = "https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml"
 SEARCH_FROM = "01/01/2019"
 ROWS_PER_PAGE = 10
-TIMEOUT = 60
+TIMEOUT = 120
+MAX_RETRIES = 3
 
 COLUMNS = [
     "excep_seq", "submittal_dt", "filing_no", "status", "filing_type",
@@ -56,7 +58,6 @@ def parse_rows(xml_text: str) -> list[list[str]]:
                 html = update.text
                 break
     except ET.ParseError:
-        # Fallback: extract from CDATA blocks directly
         for block in re.findall(r"<!\[CDATA\[(.*?)\]\]>", xml_text, re.DOTALL):
             if "gridcell" in block:
                 html = block
@@ -73,27 +74,14 @@ def parse_rows(xml_text: str) -> list[list[str]]:
     return rows
 
 
-def main():
-    data_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data")
-    out = data_dir / "filings.csv"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    # Use yesterday to avoid "future date" error from RRC server (Central time)
-    today = (date.today() - timedelta(days=1)).strftime("%m/%d/%Y")
-
-    s = requests.Session()
-    s.headers.update({"User-Agent": "tx-swr32/1.0"})
-
-    # Init session
-    log("Initializing session...")
+def init_and_search(s: requests.Session, today: str) -> tuple[str, int, str]:
+    """Initialize session, run search, return (response_text, total, viewstate)."""
     r = s.get(BASE, timeout=TIMEOUT)
     vs = get_viewstate(r.text)
     if not vs:
-        log("WARN: empty ViewState, retrying...")
         r = s.get(BASE, timeout=TIMEOUT)
         vs = get_viewstate(r.text)
 
-    # Search
-    log(f"Searching {SEARCH_FROM} to {today}...")
     r = s.post(BASE, data={
         "javax.faces.partial.ajax": "true",
         "javax.faces.source": "pbqueryForm:searchExceptions",
@@ -119,98 +107,131 @@ def main():
 
     vs = get_viewstate(r.text) or vs
     total = get_total(r.text)
-    total_pages = (total + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE
-    log(f"Found {total} records ({total_pages} pages)")
+    return r.text, total, vs
 
-    # Collect all rows
-    seen = set()
-    all_rows = []
 
-    def add_rows(rows):
-        for row in rows:
-            filing_no = row[2] if len(row) > 2 else None
-            if filing_no and filing_no not in seen:
-                seen.add(filing_no)
-                all_rows.append(row)
-
-    # First page
-    add_rows(parse_rows(r.text))
-    log(f"Page 1/{total_pages}")
-
-    # Remaining pages
-    fail_count = 0
-    for page in range(1, total_pages):
-        first = page * ROWS_PER_PAGE
-        r = s.post(BASE, data={
-            "javax.faces.partial.ajax": "true",
-            "javax.faces.source": "pbqueryForm:pQueryTable",
-            "javax.faces.partial.execute": "pbqueryForm:pQueryTable",
-            "javax.faces.partial.render": "pbqueryForm:pQueryTable",
-            "javax.faces.behavior.event": "page",
-            "javax.faces.partial.event": "page",
-            "pbqueryForm:pQueryTable_pagination": "true",
-            "pbqueryForm:pQueryTable_first": str(first),
-            "pbqueryForm:pQueryTable_rows": str(ROWS_PER_PAGE),
-            "pbqueryForm:pQueryTable_encodeFeature": "true",
-            "pbqueryForm:pQueryTable_rppDD": str(ROWS_PER_PAGE),
-            "pbqueryForm": "pbqueryForm",
-            "javax.faces.ViewState": vs,
-            "pbqueryForm:filingTypeList_focus": "",
-            "pbqueryForm:filingTypeList_input": "",
-            "pbqueryForm:permanentException_focus": "",
-            "pbqueryForm:permanentException_input": "",
-            "pbqueryForm:swr32h8_focus": "",
-            "pbqueryForm:swr32h8_input": "",
-            "pbqueryForm:propertyTypeList_focus": "",
-            "pbqueryForm:propertyTypeList_input": "",
-            "pbqueryForm:submittalDateFrom_input": SEARCH_FROM,
-            "pbqueryForm:submittalDateTo_input": today,
-        }, headers={
-            "Faces-Request": "partial/ajax",
-            "X-Requested-With": "XMLHttpRequest",
-        }, timeout=TIMEOUT)
-
-        if not r.text or "ViewExpiredException" in r.text:
-            log(f"WARN: bad response on page {page + 1}, reinitializing...")
-            r2 = s.get(BASE, timeout=TIMEOUT)
-            vs = get_viewstate(r2.text)
-            # Re-search
-            s.post(BASE, data={
+def paginate(s: requests.Session, vs: str, first: int, today: str) -> requests.Response:
+    """Fetch a single page of results with retry."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            r = s.post(BASE, data={
                 "javax.faces.partial.ajax": "true",
-                "javax.faces.source": "pbqueryForm:searchExceptions",
-                "javax.faces.partial.execute": "@all",
+                "javax.faces.source": "pbqueryForm:pQueryTable",
+                "javax.faces.partial.execute": "pbqueryForm:pQueryTable",
                 "javax.faces.partial.render": "pbqueryForm:pQueryTable",
-                "pbqueryForm:searchExceptions": "pbqueryForm:searchExceptions",
+                "javax.faces.behavior.event": "page",
+                "javax.faces.partial.event": "page",
+                "pbqueryForm:pQueryTable_pagination": "true",
+                "pbqueryForm:pQueryTable_first": str(first),
+                "pbqueryForm:pQueryTable_rows": str(ROWS_PER_PAGE),
+                "pbqueryForm:pQueryTable_encodeFeature": "true",
+                "pbqueryForm:pQueryTable_rppDD": str(ROWS_PER_PAGE),
                 "pbqueryForm": "pbqueryForm",
                 "javax.faces.ViewState": vs,
+                "pbqueryForm:filingTypeList_focus": "",
+                "pbqueryForm:filingTypeList_input": "",
+                "pbqueryForm:permanentException_focus": "",
+                "pbqueryForm:permanentException_input": "",
+                "pbqueryForm:swr32h8_focus": "",
+                "pbqueryForm:swr32h8_input": "",
+                "pbqueryForm:propertyTypeList_focus": "",
+                "pbqueryForm:propertyTypeList_input": "",
                 "pbqueryForm:submittalDateFrom_input": SEARCH_FROM,
                 "pbqueryForm:submittalDateTo_input": today,
             }, headers={
                 "Faces-Request": "partial/ajax",
                 "X-Requested-With": "XMLHttpRequest",
             }, timeout=TIMEOUT)
-            fail_count += 1
-            if fail_count >= 5:
-                log("ERROR: too many failures, stopping")
-                break
-            continue
+            return r
+        except (requests.Timeout, requests.ConnectionError) as e:
+            log(f"RETRY {attempt + 1}/{MAX_RETRIES}: {e}")
+            time.sleep(5 * (attempt + 1))
+    raise requests.Timeout(f"Failed after {MAX_RETRIES} retries")
 
-        fail_count = 0
-        new_vs = get_viewstate(r.text)
-        if new_vs:
-            vs = new_vs
-        add_rows(parse_rows(r.text))
 
-        if (page + 1) % 50 == 0:
-            log(f"Page {page + 1}/{total_pages} ({len(all_rows)} filings)")
+def main():
+    data_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data")
+    out = data_dir / "filings.csv"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    # Use yesterday to avoid "future date" error from RRC server (Central time)
+    today = (date.today() - timedelta(days=1)).strftime("%m/%d/%Y")
 
-    # Write output
-    with open(out, "w") as f:
-        f.write("\t".join(COLUMNS) + "\n")
-        for row in all_rows:
-            f.write("\t".join(row) + "\n")
+    # Load existing filings for dedup/resume
+    seen = set()
+    if out.exists():
+        with open(out) as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                if len(parts) > 2 and parts[2] != "filing_no":
+                    seen.add(parts[2])
+        log(f"Resuming: {len(seen)} filings already scraped")
 
-    log(f"Done: {len(all_rows)} filings -> {out}")
+    s = requests.Session()
+    s.headers.update({"User-Agent": "tx-swr32/1.0"})
+
+    log("Initializing session...")
+    search_text, total, vs = init_and_search(s, today)
+    total_pages = (total + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE
+    log(f"Found {total} records ({total_pages} pages)")
+
+    # Open file for appending (write header if new)
+    write_header = not out.exists() or out.stat().st_size == 0
+    added = 0
+
+    with open(out, "a") as f:
+        if write_header:
+            f.write("\t".join(COLUMNS) + "\n")
+
+        def add_rows(rows):
+            nonlocal added
+            for row in rows:
+                filing_no = row[2] if len(row) > 2 else None
+                if filing_no and filing_no not in seen:
+                    seen.add(filing_no)
+                    f.write("\t".join(row) + "\n")
+                    added += 1
+
+        # First page
+        add_rows(parse_rows(search_text))
+        f.flush()
+        log(f"Page 1/{total_pages}")
+
+        # Remaining pages
+        reinit_count = 0
+        for page in range(1, total_pages):
+            first = page * ROWS_PER_PAGE
+
+            try:
+                r = paginate(s, vs, first, today)
+            except requests.Timeout:
+                log(f"WARN: timeout on page {page + 1}, reinitializing...")
+                search_text, _, vs = init_and_search(s, today)
+                reinit_count += 1
+                if reinit_count >= 5:
+                    log("ERROR: too many reinits, stopping")
+                    break
+                continue
+
+            if not r.text or "ViewExpiredException" in r.text:
+                log(f"WARN: expired session on page {page + 1}, reinitializing...")
+                search_text, _, vs = init_and_search(s, today)
+                reinit_count += 1
+                if reinit_count >= 5:
+                    log("ERROR: too many reinits, stopping")
+                    break
+                continue
+
+            reinit_count = 0
+            new_vs = get_viewstate(r.text)
+            if new_vs:
+                vs = new_vs
+            add_rows(parse_rows(r.text))
+
+            if (page + 1) % 50 == 0:
+                f.flush()
+                log(f"Page {page + 1}/{total_pages} ({added} new, {len(seen)} total)")
+
+    log(f"Done: {added} new filings ({len(seen)} total) -> {out}")
 
 
 if __name__ == "__main__":
