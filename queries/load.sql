@@ -32,30 +32,15 @@ SELECT fl.*, CASE WHEN fl.latitude != 0 AND fl.longitude != 0
                   THEN ST_Point(fl.longitude, fl.latitude) END
 FROM read_csv('data/flare_locations.csv', header=true, auto_detect=true) fl;
 
--- PDQ: lease-level gas disposition (vented/flared volumes)
--- Only load rows where gas was flared/vented (DISPCD04 > 0) or casinghead gas flared (DISPCDE04 > 0)
--- District mapping: 08=7B, 09=7C, 10=08, 11=8A, 13=09, 14=10
+-- VNF: pre-aggregated parquet (site × day, nighttime detections, permit era)
+INSERT INTO raw.vnf
+SELECT flare_id, lat, lon, date, clear, detected, rh_mw, temp_k, n_passes,
+    CASE WHEN lat IS NOT NULL THEN ST_Point(lon, lat) END
+FROM read_parquet('data/vnf.parquet');
+
+-- PDQ: pre-filtered gas disposition parquet (only rows with flaring/venting)
 INSERT INTO raw.gas_disposition
-SELECT
-    OIL_GAS_CODE, DISTRICT_NO, LEASE_NO, CYCLE_YEAR, CYCLE_MONTH,
-    OPERATOR_NO, FIELD_NO,
-    NULLIF(LEASE_GAS_DISPCD04_VOL, '')::DOUBLE,
-    NULLIF(LEASE_CSGD_DISPCDE04_VOL, '')::DOUBLE,
-    COALESCE(NULLIF(LEASE_GAS_DISPCD01_VOL,'')::DOUBLE,0) + COALESCE(NULLIF(LEASE_GAS_DISPCD02_VOL,'')::DOUBLE,0)
-      + COALESCE(NULLIF(LEASE_GAS_DISPCD03_VOL,'')::DOUBLE,0) + COALESCE(NULLIF(LEASE_GAS_DISPCD04_VOL,'')::DOUBLE,0)
-      + COALESCE(NULLIF(LEASE_GAS_DISPCD05_VOL,'')::DOUBLE,0) + COALESCE(NULLIF(LEASE_GAS_DISPCD06_VOL,'')::DOUBLE,0)
-      + COALESCE(NULLIF(LEASE_GAS_DISPCD07_VOL,'')::DOUBLE,0) + COALESCE(NULLIF(LEASE_GAS_DISPCD08_VOL,'')::DOUBLE,0)
-      + COALESCE(NULLIF(LEASE_GAS_DISPCD09_VOL,'')::DOUBLE,0) + COALESCE(NULLIF(LEASE_GAS_DISPCD99_VOL,'')::DOUBLE,0),
-    COALESCE(NULLIF(LEASE_CSGD_DISPCDE01_VOL,'')::DOUBLE,0) + COALESCE(NULLIF(LEASE_CSGD_DISPCDE02_VOL,'')::DOUBLE,0)
-      + COALESCE(NULLIF(LEASE_CSGD_DISPCDE03_VOL,'')::DOUBLE,0) + COALESCE(NULLIF(LEASE_CSGD_DISPCDE04_VOL,'')::DOUBLE,0)
-      + COALESCE(NULLIF(LEASE_CSGD_DISPCDE05_VOL,'')::DOUBLE,0) + COALESCE(NULLIF(LEASE_CSGD_DISPCDE06_VOL,'')::DOUBLE,0)
-      + COALESCE(NULLIF(LEASE_CSGD_DISPCDE07_VOL,'')::DOUBLE,0) + COALESCE(NULLIF(LEASE_CSGD_DISPCDE08_VOL,'')::DOUBLE,0)
-      + COALESCE(NULLIF(LEASE_CSGD_DISPCDE99_VOL,'')::DOUBLE,0),
-    DISTRICT_NAME, LEASE_NAME, OPERATOR_NAME, FIELD_NAME
-FROM read_csv('data/pdq/OG_LEASE_CYCLE_DISP_DATA_TABLE.dsv',
-    delim='}', header=true, all_varchar=true, ignore_errors=true)
-WHERE (NULLIF(LEASE_GAS_DISPCD04_VOL, '') IS NOT NULL AND LEASE_GAS_DISPCD04_VOL != '0')
-   OR (NULLIF(LEASE_CSGD_DISPCDE04_VOL, '') IS NOT NULL AND LEASE_CSGD_DISPCDE04_VOL != '0');
+SELECT * FROM read_parquet('data/gas_disposition.parquet');
 
 -- PDQ: lease summary master (for lease name/operator lookups)
 INSERT INTO raw.pdq_leases
@@ -65,30 +50,6 @@ SELECT
     CYCLE_YEAR_MONTH_MIN::VARCHAR, CYCLE_YEAR_MONTH_MAX::VARCHAR
 FROM read_csv('data/pdq/OG_SUMMARY_MASTER_LARGE_DATA_TABLE.dsv',
     delim='}', header=true, all_varchar=true, ignore_errors=true);
-
--- VNF: read profiles with explicit types (avoids auto_detect on 1700 files)
--- Filter to permit era (Q4 2023+) and nighttime (sunlit=0)
-SET VARIABLE vnf_start = '2023-10-01';
-
-INSERT INTO raw.vnf
-SELECT flare_id, AVG(lat), AVG(lon), date,
-    BOOL_OR(cloud = 0) AS clear,
-    BOOL_OR(cloud = 0 AND temp != 999999) AS detected,
-    AVG(CASE WHEN cloud = 0 AND temp != 999999 THEN rh END),
-    AVG(CASE WHEN cloud = 0 AND temp != 999999 THEN temp END),
-    COUNT(*), NULL
-FROM (
-    SELECT CAST(regexp_extract(filename, 'site_(\d+)', 1) AS INTEGER) AS flare_id,
-           Date_Mscan::DATE AS date, Lat_GMTCO::DOUBLE AS lat, Lon_GMTCO::DOUBLE AS lon,
-           Cloud_Mask::INTEGER AS cloud, Temp_BB::DOUBLE AS temp, RH::DOUBLE AS rh
-    FROM read_csv('data/vnf_profiles/site_*.csv', filename=true, union_by_name=true,
-                  ignore_errors=true, all_varchar=true, header=true)
-    WHERE Sunlit::INTEGER = 0
-      AND Date_Mscan::DATE >= getvariable('vnf_start')
-)
-GROUP BY flare_id, date;
-
-UPDATE raw.vnf SET geom = ST_Point(lon, lat) WHERE lat IS NOT NULL;
 
 -- Non-upstream facility exclusion zones (EPA GHGRP)
 INSERT INTO raw.excluded_facilities
@@ -106,7 +67,7 @@ SELECT
     plume_latitude::DOUBLE AS latitude,
     plume_longitude::DOUBLE AS longitude,
     emission_auto::DOUBLE AS emission_rate,
-    emission_uncertainty_auto::DOUBLE AS emission_uncertainty,
+    emission_uncertainty_auto::DOUBLE AS emission_rate_uncertainty,
     CASE
         WHEN ipcc_sector ILIKE '%oil%' OR ipcc_sector ILIKE '%gas%' THEN 'og'
         WHEN ipcc_sector ILIKE '%coal%' THEN 'coal'

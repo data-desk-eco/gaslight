@@ -4,9 +4,9 @@ LOAD spatial;
 -- Entity tables: flare sites, detections, spatial matches
 -- ============================================================
 
--- Match radii
-SET VARIABLE permit_radius = 0.01;    -- 1km for VNF ↔ permit location
-SET VARIABLE plume_radius = 0.01;     -- 1km for plume ↔ well/VNF
+-- Match radii (meters, for ST_Distance_Sphere)
+SET VARIABLE permit_radius = 1000;    -- 1km for VNF ↔ permit location
+SET VARIABLE plume_radius = 1000;     -- 1km for plume ↔ well/VNF
 
 -- Flare sites: one row per VNF site with exclusion flag
 CREATE OR REPLACE TABLE flare_sites AS
@@ -77,7 +77,7 @@ FROM flare_sites f
 JOIN flare_locations fl ON fl.geom IS NOT NULL
     AND fl.longitude BETWEEN f.lon - 0.03 AND f.lon + 0.03
     AND fl.latitude  BETWEEN f.lat - 0.03 AND f.lat + 0.03
-    AND ST_DWithin(f.geom, fl.geom, getvariable('permit_radius'))
+    AND ST_Distance_Sphere(f.geom, fl.geom) < getvariable('permit_radius')
 WHERE NOT f.near_excluded_facility;
 
 -- Permit coverage: which permits cover which sites, with parsed dates
@@ -226,7 +226,7 @@ FROM raw.plumes p
 JOIN raw.wells w ON w.geom IS NOT NULL
     AND w.longitude BETWEEN p.longitude - 0.02 AND p.longitude + 0.02
     AND w.latitude  BETWEEN p.latitude  - 0.02 AND p.latitude  + 0.02
-    AND ST_DWithin(p.geom, w.geom, getvariable('plume_radius'))
+    AND ST_Distance_Sphere(p.geom, w.geom) < getvariable('plume_radius')
 WHERE NOT EXISTS (
     SELECT 1 FROM raw.excluded_facilities ef
     WHERE ef.geom IS NOT NULL
@@ -247,5 +247,5 @@ FROM raw.plumes p
 JOIN flare_sites fs
     ON fs.lon BETWEEN p.longitude - 0.02 AND p.longitude + 0.02
     AND fs.lat BETWEEN p.latitude - 0.02 AND p.latitude + 0.02
-    AND ST_DWithin(p.geom, fs.geom, getvariable('plume_radius'))
+    AND ST_Distance_Sphere(p.geom, fs.geom) < getvariable('plume_radius')
 WHERE NOT fs.near_excluded_facility;

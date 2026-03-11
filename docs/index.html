@@ -2,106 +2,58 @@
 <notebook theme="midnight">
   <title>Dark flaring in the Permian Basin</title>
 
-  <script id="summary" output="summary" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT is_dark,
-      count(*) AS detection_days,
-      count(DISTINCT flare_id) AS flare_sites,
-      round(sum(rh_mw), 0) AS total_rh_mw,
-      min(date) AS earliest, max(date) AS latest
-    FROM dark_flares GROUP BY is_dark
+  <script id="q_headline" output="headline" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
+    SELECT * FROM headline
   </script>
 
-  <script id="top_flares" output="topFlares" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT * FROM top_dark_flares
+  <script id="q_sites" output="sites" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
+    SELECT * FROM dark_sites
   </script>
 
-  <script id="dark_by_year" output="darkByYear" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT flare_id,
-      extract(year FROM date)::INTEGER AS year,
-      round(avg(vnf_lat), 4) AS lat, round(avg(vnf_lon), 4) AS lon,
-      COALESCE(operator_name, 'Unknown') AS operator,
-      confidence,
-      count(*) AS detection_days, round(sum(rh_mw), 1) AS total_rh_mw
-    FROM dark_flares WHERE is_dark
-    GROUP BY flare_id, year, operator, confidence
+  <script id="q_operators" output="operators" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
+    SELECT * FROM dark_operators
   </script>
 
-  <script id="by_operator" output="byOperator" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    WITH ranked AS (
-      SELECT COALESCE(operator_name, 'Unknown') AS operator,
-        count(DISTINCT flare_id) AS sites,
-        count(*) AS detection_days,
-        round(sum(rh_mw), 0) AS rh_mw
-      FROM dark_flares WHERE is_dark
-        AND confidence IN ('sole', 'majority')
-      GROUP BY operator ORDER BY rh_mw DESC LIMIT 15
-    )
-    SELECT operator, 'Radiant heat (MW)' AS metric, rh_mw AS value FROM ranked
-    UNION ALL
-    SELECT operator, 'Detection-days' AS metric, detection_days AS value FROM ranked
+  <script id="q_quarterly" output="quarterly" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
+    SELECT * FROM dark_quarterly
   </script>
 
-  <script id="quarterly" output="quarterly" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT date_trunc('quarter', date) AS quarter,
-      is_dark,
-      count(*) AS detection_days,
-      count(DISTINCT flare_id) AS sites,
-      round(sum(rh_mw), 0) AS total_rh_mw
-    FROM dark_flares
-    GROUP BY 1, 2 ORDER BY 1
+  <script id="q_leases" output="leases" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
+    SELECT * FROM top_leases LIMIT 25
   </script>
 
   <script id="counties" type="module">
     const us = await fetch("https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json").then(r => r.json());
-    const countyFeatures = topojson.feature(us, us.objects.counties);
-    const states = topojson.feature(us, us.objects.states);
-    const txCounties = {type: "FeatureCollection", features: countyFeatures.features.filter(d => d.id.startsWith("48"))};
-    const tx = {type: "FeatureCollection", features: states.features.filter(d => d.id === "48")};
-  </script>
-
-  <script id="permit_era" output="permitEra" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT is_dark, count(*) AS det_days, count(DISTINCT flare_id) AS sites,
-      round(sum(rh_mw), 0) AS rh
-    FROM dark_flares WHERE date >= '2023-10-01'
-    GROUP BY 1
+    const txCounties = {type: "FeatureCollection", features: topojson.feature(us, us.objects.counties).features.filter(d => d.id.startsWith("48"))};
+    const tx = {type: "FeatureCollection", features: topojson.feature(us, us.objects.states).features.filter(d => d.id === "48")};
   </script>
 
   <script id="header" type="text/markdown">
     # Dark flaring in the Permian Basin
 
-    Satellite flare detections ([VIIRS Nightfire](https://eogdata.mines.edu/products/vnf/)) matched to [SWR 32 permitted flare locations](https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml), then checked against active permit dates. Upstream production sites only — midstream gas plants, compressor stations, and refineries excluded.
+    Satellite flare detections ([VIIRS Nightfire](https://eogdata.mines.edu/products/vnf/)) matched to [SWR 32 permitted flare locations](https://webapps.rrc.state.tx.us/swr32/publicquery.xhtml), then checked against active permit dates. Upstream production sites only.
 
-    **${topFlares.length} dark flare sites** with **${d3.sum(topFlares, d => d.detection_days).toLocaleString()} detection-days** of unpermitted flaring since Q4 2023. **${Math.round(100 * (permitEra.find(d => d.is_dark)?.det_days ?? 0) / d3.sum(permitEra, d => d.det_days))}%** of detection-days at matched upstream sites lack a valid SWR 32 exception permit.
+    **${headline[0].dark_sites} dark flare sites** with **${d3.format(",")(headline[0].dark_days)} detection-days** of unpermitted flaring (**${headline[0].pct_dark}%** of all detection-days). Self-reported flaring volumes suggest **${headline[0].unpermitted_bcf} Bcf** (${headline[0].pct_reported_unpermitted}%) was flared outside permitted windows.
   </script>
 
   <script id="year_select" type="module">
-    const years = Array.from(new Set(darkByYear.map(d => d.year))).sort();
-    const selectedYear = view(Inputs.range([years[0], years[years.length - 1]], {
-      step: 1, value: years[years.length - 1], label: "Year"
-    }));
+    const years = Array.from(new Set(sites.map(d => d.year))).sort();
+    const selectedYear = view(Inputs.range([years[0], years[years.length - 1]], {step: 1, value: years[years.length - 1], label: "Year"}));
   </script>
 
   <script id="map" type="module">
-    const filtered = darkByYear.filter(d => d.year === selectedYear);
-
     display(Plot.plot({
       projection: {type: "mercator", domain: {type: "MultiPoint", coordinates: [[-104.5, 30.5], [-100.0, 33.1]]}},
-      width: 960,
-      height: 700,
-      marginTop: 10,
-      color: {scheme: "YlOrRd", reverse: true, type: "log", domain: [0.1, d3.max(darkByYear, d => d.total_rh_mw)], label: "Radiant heat (MW)", legend: true},
-      r: {range: [3, 30], type: "sqrt", domain: [0.1, d3.max(darkByYear, d => d.total_rh_mw)]},
+      width: 960, height: 700, marginTop: 10,
+      color: {scheme: "YlOrRd", reverse: true, domain: [0, d3.max(sites, d => d.avg_rh_mw)], label: "Avg radiant heat (MW)", legend: true},
+      r: {range: [2, 14], domain: [0, d3.max(sites, d => d.avg_rh_mw)]},
       marks: [
         Plot.geo(txCounties, {fill: "#1a1a2e", stroke: "#2a2a3e"}),
         Plot.geo(tx, {fill: "none", stroke: "#555", strokeWidth: 1.5}),
-        Plot.dot(filtered, {
-          x: "lon", y: "lat",
-          r: "total_rh_mw",
-          fill: "total_rh_mw",
-          stroke: "#fff",
-          strokeWidth: 0.5,
-          tip: true,
-          title: d => `${d.operator}${d.confidence === 'contested' ? ' (contested)' : ''}\n${d.detection_days} days, ${d.total_rh_mw} MW`
+        Plot.dot(sites.filter(d => d.year === selectedYear), {
+          x: "lon", y: "lat", r: "avg_rh_mw", fill: "avg_rh_mw",
+          stroke: "#fff", strokeWidth: 0.5, tip: true,
+          title: d => `${d.operator}${d.confidence === 'contested' ? ' (contested)' : ''}\n${d.detection_days} days, avg ${d.avg_rh_mw} MW`
         })
       ]
     }));
@@ -110,32 +62,20 @@
   <script id="hr1" type="text/html"><hr></script>
 
   <script id="operator_header" type="text/markdown">
-    ## Top operators by unpermitted flaring
+    ## Top operators by unpermitted flaring (satellite)
 
-    Operators attributed by matching dark flare sites to the nearest SWR 32 permit location. Sites where multiple operators have overlapping permit coverage are excluded (${d3.sum(byOperatorContested, d => d.sites)} contested sites, ${d3.sum(byOperatorContested, d => d.permit_era_days).toLocaleString()} detection-days).
-  </script>
-
-  <script id="by_operator_contested" output="byOperatorContested" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT COALESCE(operator_name, 'Unknown') AS operator,
-      count(DISTINCT flare_id) AS sites,
-      sum(CASE WHEN date >= '2023-10-01' THEN 1 ELSE 0 END) AS permit_era_days,
-      round(sum(CASE WHEN date >= '2023-10-01' THEN rh_mw ELSE 0 END), 0) AS permit_era_rh_mw
-    FROM dark_flares WHERE is_dark AND confidence = 'contested'
-    GROUP BY operator ORDER BY permit_era_rh_mw DESC
+    Operators attributed by matching dark flare sites to the nearest SWR 32 permit location. Contested sites (multiple operators) excluded.
   </script>
 
   <script id="operator_chart" type="module">
-    const sortOrder = [...new Set(byOperator.filter(d => d.metric === "Radiant heat (MW)").map(d => d.operator))];
     display(Plot.plot({
-      width: 960,
-      height: 400,
-      marginLeft: 250,
-      fx: {label: null, padding: 0.15, domain: ["Radiant heat (MW)", "Detection-days"]},
-      x: {label: null, grid: true},
-      y: {label: null, domain: sortOrder},
+      width: 960, height: 400, marginLeft: 250,
+      x: {label: "Total radiant heat (MW)", grid: true},
+      y: {label: null, domain: operators.map(d => d.operator)},
       color: {scheme: "YlOrRd", reverse: true, type: "log"},
       marks: [
-        Plot.barX(byOperator, {fx: "metric", y: "operator", x: "value", fill: "value", tip: true}),
+        Plot.barX(operators, {y: "operator", x: "total_rh_mw", fill: "total_rh_mw", tip: true,
+          title: d => `${d.operator}\n${d3.format(",")(d.total_rh_mw)} MW\n${d3.format(",")(d.detection_days)} days\n${d.sites} sites`}),
         Plot.ruleX([0])
       ]
     }));
@@ -143,89 +83,50 @@
 
   <script id="hr2" type="text/html"><hr></script>
 
-  <script id="reported_flaring_q" output="reportedFlaring" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT date_trunc('quarter', month)::VARCHAR AS quarter,
-      round(sum(total_flared_mcf) / 1e3, 0) AS flared_mmcf,
-      count(DISTINCT lease_no) AS leases
-    FROM reported_flaring_permit_check
-    WHERE district IN ('7B','7C','08','8A')
-    GROUP BY 1 ORDER BY 1
+  <script id="lease_header" type="text/markdown">
+    ## Top leases by unpermitted flaring
+
+    Each SWR 32 permit maps to its underlying oil and gas leases. This connects satellite flare detections to leases that operators report flaring volumes on in [production reports](https://www.rrc.texas.gov/oil-and-gas/research-and-statistics/production-data/). Reported flaring is pro-rated by daily permit coverage (median permit duration: 11 days).
   </script>
 
-  <script id="reported_stats" output="reportedStats" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT round(sum(total_flared_mcf) / 1e6, 0) AS total_bcf,
-      count(DISTINCT lease_no) AS leases,
-      round(count(CASE WHEN has_active_permit THEN 1 END) * 100.0 / count(*), 2) AS pct_permitted
-    FROM reported_flaring_permit_check
-    WHERE district IN ('7B','7C','08','8A')
-  </script>
-
-  <script id="top_flarers_q" output="topFlarers" type="application/sql" database="../data/dark_flaring.duckdb" hidden>
-    SELECT operator_name AS operator, district,
-      leases, total_flared_mcf,
-      round(avg_flare_rate * 100, 1) AS flare_pct
-    FROM top_unpermitted_flarers LIMIT 15
-  </script>
-
-  <script id="reported_header" type="text/markdown">
-    ## Self-reported flaring without permits
-
-    Operators report gas flared or vented each month in [RRC production reports](https://www.rrc.texas.gov/oil-and-gas/research-and-statistics/production-data/). Cross-referencing against active SWR 32 exception permits: **${reportedStats[0].pct_permitted}%** of ${reportedStats[0].leases.toLocaleString()} flaring lease-months in the Permian have an active permit. The median SWR 32 permit lasts just **10 days**.
-  </script>
-
-  <script id="reported_chart" type="module">
-    display(Plot.plot({
-      title: "Reported gas flared in the Permian Basin (MMcf/quarter)",
-      width: 960,
-      height: 350,
-      x: {label: null, type: "band"},
-      y: {label: "Gas flared (MMcf)", grid: true},
-      marks: [
-        Plot.barY(reportedFlaring, {
-          x: d => d.quarter.slice(0, 7),
-          y: "flared_mmcf",
-          fill: "#e25822",
-          tip: {format: {x: d => d, y: d => d3.format(",.0f")(d) + " MMcf"}}
-        }),
-        Plot.ruleY([0])
-      ]
-    }));
-  </script>
-
-  <script id="flarers_header" type="text/markdown">
-    Top Permian operators reporting flaring without an active SWR 32 permit (Q4 2023 onward):
-  </script>
-
-  <script id="flarers_table" type="module">
-    display(Inputs.table(topFlarers, {
-      columns: ["operator", "district", "leases", "total_flared_mcf", "flare_pct"],
-      header: {operator: "Operator", district: "District", leases: "Leases", total_flared_mcf: "Total flared (Mcf)", flare_pct: "Flare rate (%)"},
-      format: {total_flared_mcf: d => d3.format(",.0f")(d)},
-      rows: 15
+  <script id="lease_table" type="module">
+    display(Inputs.table(leases, {
+      columns: ["district", "lease_number", "operator", "lease_name", "reported_mcf", "unpermitted_mcf", "avg_coverage", "vnf_days", "vnf_rh_mw"],
+      header: {
+        district: "Dist", lease_number: "Lease", operator: "Operator", lease_name: "Lease name",
+        reported_mcf: "Reported (Mcf)", unpermitted_mcf: "Unpermitted (Mcf)",
+        avg_coverage: "Permit coverage", vnf_days: "VNF days", vnf_rh_mw: "VNF (MW)"
+      },
+      format: {
+        reported_mcf: d => d3.format(",.0f")(d),
+        unpermitted_mcf: d => d3.format(",.0f")(d),
+        avg_coverage: d => d3.format(".0%")(d),
+        vnf_rh_mw: d => d3.format(",.1f")(d)
+      },
+      rows: 25
     }));
   </script>
 
   <script id="hr3" type="text/html"><hr></script>
 
   <script id="trend_header" type="text/markdown">
-    ## Quarterly trend
-    Approved SWR 32 permits in our data begin in Q4 2023. Since then, **${Math.round(100 * (permitEra.find(d => d.is_dark)?.det_days ?? 0) / d3.sum(permitEra, d => d.det_days))}%** of detection-days at matched upstream sites remain unpermitted.
+    ## Quarterly satellite trend
+
+    SWR 32 permits in our data begin Q4 2023.
   </script>
 
   <script id="quarterly_chart" type="module">
     display(Plot.plot({
-      width: 960,
-      height: 350,
+      width: 960, height: 350,
       x: {label: null},
       y: {label: "Detection-days", grid: true},
       color: {domain: [false, true], range: ["#f5deb3", "#e25822"], legend: true,
         tickFormat: d => d ? "Dark" : "Permitted"},
       marks: [
-        Plot.rectY(quarterly, Plot.stackY({order: (d) => d.is_dark ? 1 : 0, x: "quarter", interval: "quarter", y: "detection_days", fill: "is_dark", tip: true})),
+        Plot.rectY(quarterly, Plot.stackY({order: d => d.is_dark ? 1 : 0, x: "quarter", interval: "quarter", y: "detection_days", fill: "is_dark", tip: true})),
         Plot.ruleY([0])
       ]
     }));
   </script>
-
 
 </notebook>

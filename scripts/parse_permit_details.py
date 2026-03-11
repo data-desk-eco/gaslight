@@ -7,136 +7,133 @@ Writes:
   data/permit_properties.csv   — properties/leases (one row per property per filing)
   data/flare_locations.csv     — flare/vent GPS locations (replaces existing)
   data/permit_attachments.csv  — attachment index
+
+Optimised: builds an id→text index per page for O(1) lookups instead of
+repeated full-tree searches.
 """
 import csv
 import re
 import sys
 from pathlib import Path
 
-from bs4 import BeautifulSoup
+from lxml import etree
 
 
-def label_after(soup: BeautifulSoup, header_text: str, prefix: str) -> str:
-    """Find label containing header_text with given ID prefix, return the next sibling's text.
+def build_index(html: str) -> tuple[dict[str, str], etree._Element]:
+    """Parse HTML and build id→text_content index for all labelled elements."""
+    parser = etree.HTMLParser()
+    tree = etree.fromstring(html.encode("utf-8"), parser)
 
-    Values can be in <label> (most fields) or <span> (dates) tags.
-    """
-    header = soup.find("label", id=lambda x: x and prefix in x,
-                       string=lambda s: s and header_text in s)
-    if not header:
-        return ""
-    # Try next label with matching prefix first
-    sibling = header.find_next("label", id=lambda x: x and prefix in x)
-    if sibling:
-        text = sibling.get_text(strip=True)
-        # If the next label is actually another header (contains ":"), check for span value first
-        if text and not text.endswith(":"):
-            return text
-    # Fall back to next sibling span (used for dates)
-    next_sib = header.find_next_sibling()
-    if next_sib:
-        return next_sib.get_text(strip=True)
-    return ""
+    idx: dict[str, str] = {}
+    for el in tree.iter():
+        eid = el.get("id")
+        if eid:
+            idx[eid] = (el.text or "").strip()
+    return idx, tree
 
 
-def label_value(soup: BeautifulSoup, label_id: str) -> str:
-    """Get text of a label by exact ID."""
-    el = soup.find("label", id=label_id)
-    return el.get_text(strip=True) if el else ""
+def find_value(idx: dict[str, str], label_id: str) -> str:
+    """Get the text of an element by its exact ID."""
+    return idx.get(label_id, "")
 
 
-def parse_filing_metadata(soup: BeautifulSoup, filing_no: str) -> dict:
-    """Extract filing metadata from the Filing Information and Exception Information sections."""
-    prefix = "pbviewForm:"
+def find_label_pair(idx: dict[str, str], header_id: str, value_id: str) -> str:
+    """Get value from a known header/value ID pair."""
+    return idx.get(value_id, "")
 
-    def lv(header_text):
-        return label_after(soup, header_text, prefix)
+
+def parse_filing_metadata(idx: dict[str, str], tree: etree._Element, filing_no: str) -> dict:
+    """Extract filing metadata using the known label ID patterns."""
+    p = "pbviewForm:"
 
     # Exception reasons from the datalist
     reasons = []
-    reasons_panel = soup.find(id=lambda x: x and "pbexcprsn" in str(x))
-    if reasons_panel:
-        for li in reasons_panel.find_all("li"):
-            text = li.get_text(strip=True)
-            # Strip leading number like "1. " or "2. "
-            text = re.sub(r"^\d+\.\s*", "", text)
-            if text:
-                reasons.append(text)
+    for el in tree.iter():
+        eid = el.get("id") or ""
+        if "pbexcprsn_list" in eid:
+            for li in el.iter("li"):
+                text = "".join(li.itertext()).strip()
+                text = re.sub(r"^\d+\.\s*", "", text)
+                if text:
+                    reasons.append(text)
+            break
+
+    # Dates are in <span> siblings, not labels — scan for them
+    effective_date = ""
+    expiration_date = ""
+    for el in tree.iter():
+        eid = el.get("id") or ""
+        if eid == f"{p}j_idt60":  # "Requested Effective Date:" label
+            sib = el.getnext()
+            if sib is not None:
+                effective_date = (sib.text or "").strip()
+        elif eid == f"{p}j_idt62":  # "Requested Expiration Date:" label
+            sib = el.getnext()
+            if sib is not None:
+                expiration_date = (sib.text or "").strip()
 
     return {
         "filing_no": filing_no,
-        "exception_number": lv("Exception Number:"),
-        "sequence_number": lv("Sequence Number:"),
-        "exception_status": lv("Exception Status:"),
-        "operator": lv("Operator:"),
-        "submitted_date": lv("Submitted Date:"),
-        "filing_type": lv("Filing Type:"),
-        "prior_exception_no": lv("Prior Exception No:"),
-        "cumulative_days_authorized": lv("Cumulative Days Authorized"),
-        "site_name": lv("Site Name:"),
-        "hearing_requested": lv("Hearing Requested:"),
-        "is_h8_shutdown": lv("shut-down of a gas plant"),
-        "permanent_exception_requested": lv("Permanent Exception Requested"),
-        "requested_effective_date": lv("Requested Effective Date:"),
-        "requested_expiration_date": lv("Requested Expiration Date:"),
-        "number_of_days": lv("Number of Days"),
-        "every_day_of_month": lv("Every day of the calendar month:"),
-        "days_per_month": lv("Days per month:"),
-        "connected_to_gathering_system": lv("connected to a gas gathering"),
-        "distance_to_nearest_pipeline": lv("Distance to nearest pipeline:"),
+        "exception_number": idx.get(f"{p}j_idt24", ""),
+        "sequence_number": idx.get(f"{p}j_idt26", ""),
+        "exception_status": idx.get(f"{p}j_idt29", ""),
+        "operator": idx.get(f"{p}j_idt33", ""),
+        "submitted_date": idx.get(f"{p}j_idt36", ""),
+        "filing_type": idx.get(f"{p}j_idt38", ""),
+        "prior_exception_no": idx.get(f"{p}j_idt31", ""),
+        "cumulative_days_authorized": idx.get(f"{p}j_idt40", ""),
+        "site_name": idx.get(f"{p}j_idt48", ""),
+        "hearing_requested": idx.get(f"{p}j_idt53", ""),
+        "is_h8_shutdown": idx.get(f"{p}j_idt56", ""),
+        "permanent_exception_requested": idx.get(f"{p}j_idt58", ""),
+        "requested_effective_date": effective_date,
+        "requested_expiration_date": expiration_date,
+        "number_of_days": idx.get(f"{p}j_idt65", ""),
+        "every_day_of_month": idx.get(f"{p}j_idt70", ""),
+        "days_per_month": idx.get(f"{p}j_idt72", ""),
+        "connected_to_gathering_system": idx.get(f"{p}j_idt75", ""),
+        "distance_to_nearest_pipeline": idx.get(f"{p}j_idt77", ""),
         "exception_reasons": ";".join(reasons),
     }
 
 
-def parse_properties(soup: BeautifulSoup, filing_no: str) -> list[dict]:
-    """Extract property list. Handles both top-level properties and nested commingle sub-properties."""
+def parse_properties(idx: dict[str, str], filing_no: str) -> list[dict]:
+    """Extract property list using known ID patterns."""
     properties = []
+    p = "pbviewForm:pbactiveprop:"
     prop_idx = 0
 
     while True:
-        prefix = f"pbactiveprop:{prop_idx}:"
-        if not soup.find(id=lambda x: x and prefix in str(x)):
+        pp = f"{p}{prop_idx}:"
+        type_id = f"{pp}j_idt85"
+        if type_id not in idx:
             break
-
-        prop_type = label_after(soup, "Property Type:", prefix)
-        district = label_after(soup, "District:", prefix)
-        prop_id = label_after(soup, "Property ID:", prefix)
-        lease_name = label_after(soup, "Lease Name:", prefix)
-
-        # For commingle permits, the release rate is at the top level
-        total_rate = label_after(soup, "Total Requested Release Rate", prefix)
-        gas_measurement = label_after(soup, "Gas Measurement Method", prefix)
 
         properties.append({
             "filing_no": filing_no,
-            "property_type": prop_type,
-            "district": district,
-            "property_id": prop_id,
-            "lease_name": lease_name,
-            "requested_release_rate_mcf_day": total_rate,
-            "gas_measurement_method": gas_measurement,
+            "property_type": idx.get(type_id, ""),
+            "district": idx.get(f"{pp}j_idt89", ""),
+            "property_id": idx.get(f"{pp}j_idt93", ""),
+            "lease_name": idx.get(f"{pp}j_idt97", ""),
+            "requested_release_rate_mcf_day": idx.get(f"{pp}j_idt102", ""),
+            "gas_measurement_method": idx.get(f"{pp}j_idt108", ""),
         })
 
-        # Check for nested commingle sub-properties (pbcmnglprop)
+        # Nested commingle sub-properties
         sub_idx = 0
         while True:
-            sub_prefix = f"pbactiveprop:{prop_idx}:pbcmnglprop:{sub_idx}:"
-            if not soup.find(id=lambda x: x and sub_prefix in str(x)):
+            sp = f"{pp}pbcmnglprop:{sub_idx}:"
+            sub_type_id = f"{sp}j_idt117"
+            if sub_type_id not in idx:
                 break
-
-            sub_type = label_after(soup, "Property Type:", sub_prefix)
-            sub_district = label_after(soup, "District:", sub_prefix)
-            sub_id = label_after(soup, "Property ID:", sub_prefix)
-            sub_name = label_after(soup, "Lease Name:", sub_prefix)
-            sub_rate = label_after(soup, "Requested Release Rate", sub_prefix)
 
             properties.append({
                 "filing_no": filing_no,
-                "property_type": sub_type,
-                "district": sub_district,
-                "property_id": sub_id,
-                "lease_name": sub_name,
-                "requested_release_rate_mcf_day": sub_rate,
+                "property_type": idx.get(sub_type_id, ""),
+                "district": idx.get(f"{sp}j_idt121", ""),
+                "property_id": idx.get(f"{sp}j_idt125", ""),
+                "lease_name": idx.get(f"{sp}j_idt129", ""),
+                "requested_release_rate_mcf_day": idx.get(f"{sp}j_idt133", ""),
                 "gas_measurement_method": "",
             })
             sub_idx += 1
@@ -146,22 +143,20 @@ def parse_properties(soup: BeautifulSoup, filing_no: str) -> list[dict]:
     return properties
 
 
-def parse_flare_locations(soup: BeautifulSoup, filing_no: str) -> list[dict]:
-    """Extract flare/vent locations."""
+def parse_flare_locations(idx: dict[str, str], filing_no: str) -> list[dict]:
+    """Extract flare/vent locations using known ID patterns."""
     locations = []
-    idx = 0
+    p = "pbviewForm:pbactivefv:"
+    fv_idx = 0
 
     while True:
-        prefix = f"pbactivefv:{idx}:"
-        if not soup.find(id=lambda x: x and prefix in str(x)):
+        fp = f"{p}{fv_idx}:"
+        name_id = f"{fp}j_idt144"
+        if name_id not in idx:
             break
 
-        def lv(header_text):
-            return label_after(soup, header_text, prefix)
-
-        lat_text = lv("Degrees (Latitude)")
-        lon_text = lv("Degrees (Longitude)")
-
+        lat_text = idx.get(f"{fp}j_idt242", "")
+        lon_text = idx.get(f"{fp}j_idt246", "")
         lat = ""
         lon = ""
         if lat_text and lon_text:
@@ -173,58 +168,58 @@ def parse_flare_locations(soup: BeautifulSoup, filing_no: str) -> list[dict]:
 
         locations.append({
             "filing_no": filing_no,
-            "name": lv("Flare or Vent Name"),
-            "county": lv("County"),
-            "district": lv("District"),
-            "release_type": lv("Release Type"),
-            "release_height_ft": lv("Release Height"),
-            "gps_datum": lv("GPS Datum"),
+            "name": idx.get(name_id, ""),
+            "county": idx.get(f"{fp}j_idt148", ""),
+            "district": idx.get(f"{fp}j_idt152", ""),
+            "release_type": idx.get(f"{fp}j_idt160", ""),
+            "release_height_ft": idx.get(f"{fp}j_idt164", ""),
+            "gps_datum": idx.get(f"{fp}j_idt172", ""),
             "latitude": lat,
             "longitude": lon,
-            "h2s_area": lv("subject to SWR 36"),
-            "h2s_concentration_ppm": lv("H2S Concentration"),
-            "h2s_distance_ft": lv("distance to public area"),
-            "h2s_public_area_type": lv("Public Area Type"),
-            "other_public_area": lv("Other Public Area"),
-            "facility_type": lv("Facility Type"),
+            "h2s_area": idx.get(f"{fp}j_idt251", ""),
+            "h2s_concentration_ppm": idx.get(f"{fp}j_idt259", ""),
+            "h2s_distance_ft": idx.get(f"{fp}j_idt262", ""),
+            "h2s_public_area_type": idx.get(f"{fp}j_idt265", ""),
+            "other_public_area": idx.get(f"{fp}j_idt268", ""),
+            "facility_type": "",
         })
-        idx += 1
+        fv_idx += 1
 
     return locations
 
 
-def parse_attachments(soup: BeautifulSoup, filing_no: str) -> list[dict]:
+def parse_attachments(tree: etree._Element, filing_no: str) -> list[dict]:
     """Extract attachment metadata from the attachment table."""
     attachments = []
 
-    tbody = soup.find(id=lambda x: x and "attachmentTable_data" in str(x))
-    if not tbody:
-        return attachments
+    # Find the tbody by ID
+    for el in tree.iter():
+        eid = el.get("id") or ""
+        if "attachmentTable_data" in eid:
+            for tr in el.iter("tr"):
+                tds = list(tr.iter("td"))
+                if len(tds) < 3:
+                    continue
+                filename = "".join(tds[0].itertext()).strip()
+                file_size = "".join(tds[1].itertext()).strip()
+                file_type = "".join(tds[2].itertext()).strip()
 
-    for tr in tbody.find_all("tr"):
-        tds = tr.find_all("td")
-        if len(tds) < 3:
-            continue
-        filename = tds[0].get_text(strip=True)
-        file_size = tds[1].get_text(strip=True)
-        file_type = tds[2].get_text(strip=True)
+                url = ""
+                for btn in tr.iter("button"):
+                    onclick = btn.get("onclick", "")
+                    m = re.search(r"window\.open\('([^']+)'", onclick)
+                    if m:
+                        url = m.group(1).replace("\\/", "/")
 
-        # Extract download URL from button onclick
-        url = ""
-        btn = tr.find("button", onclick=True)
-        if btn:
-            m = re.search(r"window\.open\('([^']+)'", btn.get("onclick", ""))
-            if m:
-                url = m.group(1).replace("\\/", "/")
-
-        if filename:
-            attachments.append({
-                "filing_no": filing_no,
-                "filename": filename,
-                "file_size": file_size,
-                "file_type": file_type,
-                "url": url,
-            })
+                if filename:
+                    attachments.append({
+                        "filing_no": filing_no,
+                        "filename": filename,
+                        "file_size": file_size,
+                        "file_type": file_type,
+                        "url": url,
+                    })
+            break
 
     return attachments
 
@@ -279,17 +274,17 @@ def main():
         filing_no = html_path.stem
         try:
             html = html_path.read_text(encoding="utf-8")
-            soup = BeautifulSoup(html, "html.parser")
+            idx, tree = build_index(html)
 
-            all_details.append(parse_filing_metadata(soup, filing_no))
-            all_properties.extend(parse_properties(soup, filing_no))
-            all_locations.extend(parse_flare_locations(soup, filing_no))
-            all_attachments.extend(parse_attachments(soup, filing_no))
+            all_details.append(parse_filing_metadata(idx, tree, filing_no))
+            all_properties.extend(parse_properties(idx, filing_no))
+            all_locations.extend(parse_flare_locations(idx, filing_no))
+            all_attachments.extend(parse_attachments(tree, filing_no))
         except Exception as e:
             print(f"  Error parsing {filing_no}: {e}", flush=True)
             errors += 1
 
-        if (i + 1) % 500 == 0:
+        if (i + 1) % 1000 == 0:
             print(f"  Parsed {i + 1}/{len(html_files)}...", flush=True)
 
     # Write CSVs
