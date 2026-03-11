@@ -16,10 +16,11 @@ Dark flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite f
 ## Methodology
 
 1. **Dark flaring**: VNF flare sites matched to nearest SWR 32 permit location within 1km. For each detection-day, if any nearby permit covers the date, it's "permitted"; otherwise "dark".
-2. **Lease matching**: dual-path — (a) permit-based via `permit_lease_map` and (b) spatial via `lease_locations` (convex hull of wells per lease, buffered ~500m). VNF sites within a lease footprint get allocated to that lease.
+2. **Lease matching**: spatial via `lease_locations` (convex hull of wells per lease, buffered ~500m). VNF sites within a lease footprint (`ST_Contains`) get allocated to that lease. `permit_lease_map` is used separately to calculate per-lease permit coverage, not for lease assignment.
 3. **Reported flaring**: PDQ gas disposition data (code 04 = vented/flared) cross-referenced with permit coverage to estimate unpermitted volumes.
 4. **Operator attribution**: nearest permit filing operator, with `sole`/`majority`/`contested` confidence levels.
 5. **Exclusions**: EPA GHGRP non-upstream facilities within 1.5km; Gas Plant permits filtered out.
+6. **Plume attribution**: Carbon Mapper + IMEO methane plumes matched to wells and VNF sites within 1km. Classified as flaring/unlit/wellpad/unmatched.
 
 ## Key details
 
@@ -28,6 +29,7 @@ Dark flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite f
 - **Lease footprints**: convex hull of well surface locations from EBCDIC type 13 records, with 0.005° (~500m) buffer. `ST_Contains` for matching.
 - **VNF load**: `all_varchar=true` on profile CSVs for speed.
 - **IMEO source**: `data/imeo_plumes.geojson` — manual download from methanedata.unep.org (no API).
+- **Permit coverage**: `permit_lease_map` maps each SWR 32 filing to its underlying leases (including commingle permits with multiple leases). Used to calculate daily permit coverage per lease-month, not for VNF-to-lease assignment.
 
 ## Commands
 

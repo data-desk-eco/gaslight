@@ -187,31 +187,6 @@ FROM raw.gas_disposition gd
 LEFT JOIN pdq_district_map dm ON dm.pdq_district = gd.district_no;
 
 -- ============================================================
--- Permit ↔ well linkage via lease numbers
--- ============================================================
-
--- For each permit matched to a flare site, find wells on its leases
--- This resolves commingle permits: filing → underlying leases → wells
-CREATE OR REPLACE TABLE site_permit_wells AS
-SELECT DISTINCT
-    spc.flare_id,
-    spc.filing_no,
-    plm.lease_district,
-    plm.lease_number,
-    plm.lease_name,
-    plm.property_type AS lease_type,
-    w.api,
-    w.well_number,
-    w.operator_no AS well_operator_no,
-    w.latitude AS well_lat,
-    w.longitude AS well_lon
-FROM site_permit_coverage spc
-JOIN permit_lease_map plm ON plm.filing_no = spc.filing_no
-JOIN raw.wells w ON w.lease_district = plm.lease_district
-    AND LPAD(w.lease_number, 6, '0') = LPAD(plm.lease_number, 6, '0')
-WHERE w.latitude != 0 AND w.longitude != 0;
-
--- ============================================================
 -- Lease locations (centroids from well surface coordinates)
 -- ============================================================
 

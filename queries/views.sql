@@ -39,51 +39,18 @@ SELECT * EXCLUDE (rn) FROM matched WHERE rn = 1;
 -- Lease-level VNF allocation + reported flaring integration
 -- ============================================================
 
--- Site-to-lease mapping: dual path (permit + spatial), deduplicated
-CREATE OR REPLACE TABLE site_lease_map AS
-WITH permit_path AS (
-    SELECT DISTINCT
-        so.flare_id,
-        plm.lease_district, plm.lease_number, plm.lease_name,
-        'permit' AS match_source
-    FROM site_operators so
-    JOIN permit_lease_map plm ON plm.filing_no = so.nearest_filing_no
-),
-spatial_path AS (
-    SELECT DISTINCT
-        slm.flare_id,
-        slm.lease_district, slm.lease_number,
-        COALESCE(pl.lease_name, rf.lease_name) AS lease_name,
-        'spatial' AS match_source
-    FROM site_lease_matches slm
-    LEFT JOIN raw.pdq_leases pl
-        ON pl.district_name = slm.lease_district
-        AND LPAD(pl.lease_no, 6, '0') = LPAD(slm.lease_number, 6, '0')
-    LEFT JOIN (
-        SELECT DISTINCT district, lease_no, lease_name
-        FROM reported_flaring
-    ) rf ON rf.district = slm.lease_district
-        AND LPAD(rf.lease_no, 6, '0') = LPAD(slm.lease_number, 6, '0')
-    WHERE (slm.flare_id, slm.lease_district, slm.lease_number) NOT IN (
-        SELECT flare_id, lease_district, lease_number FROM permit_path
-    )
-)
-SELECT * FROM permit_path
-UNION ALL
-SELECT * FROM spatial_path;
-
--- VNF detection-days allocated to leases via site_lease_map
+-- VNF detection-days allocated to leases via spatial matching
+-- (flare site within buffered convex hull of lease wells)
 CREATE OR REPLACE TABLE lease_vnf_allocation AS
 WITH detection_leases AS (
     SELECT
         v.flare_id, v.date, v.rh_mw,
         COALESCE(df.is_dark, TRUE) AS is_dark,
         COALESCE(df.operator_name, so.operator_name) AS operator_name,
-        slm.lease_district, slm.lease_number, slm.lease_name,
-        slm.match_source
+        slm.lease_district, slm.lease_number
     FROM raw.vnf v
     JOIN flare_sites fs USING (flare_id)
-    JOIN site_lease_map slm ON slm.flare_id = v.flare_id
+    JOIN site_lease_matches slm ON slm.flare_id = v.flare_id
     LEFT JOIN dark_flares df ON df.flare_id = v.flare_id AND df.date = v.date
     LEFT JOIN site_operators so ON so.flare_id = v.flare_id
     WHERE v.detected
@@ -97,9 +64,8 @@ with_weights AS (
 )
 SELECT
     flare_id, date, is_dark, operator_name,
-    lease_district, lease_number, lease_name,
-    rh_mw * weight AS allocated_rh_mw, weight,
-    match_source
+    lease_district, lease_number,
+    rh_mw * weight AS allocated_rh_mw, weight
 FROM with_weights;
 
 CREATE OR REPLACE TABLE lease_flaring AS
@@ -274,3 +240,84 @@ SELECT classification, source,
     round(sum(emission_rate), 0) AS total_emission_rate,
     min(date) AS earliest, max(date) AS latest
 FROM plume_attributed GROUP BY 1, 2 ORDER BY 1, 2;
+
+-- ============================================================
+-- Operator scorecard: comprehensive comparison across data sources
+-- ============================================================
+
+CREATE OR REPLACE VIEW operator_scorecard AS
+WITH vnf AS (
+    SELECT
+        COALESCE(operator_name, 'Unknown') AS operator,
+        count(DISTINCT flare_id) AS vnf_sites,
+        count(*) AS total_detection_days,
+        sum(CASE WHEN is_dark THEN 1 ELSE 0 END) AS dark_detection_days,
+        round(100.0 * sum(CASE WHEN is_dark THEN 1 ELSE 0 END) / count(*), 1) AS pct_dark,
+        round(sum(rh_mw), 0) AS total_rh_mw,
+        round(sum(CASE WHEN is_dark THEN rh_mw ELSE 0 END), 0) AS dark_rh_mw
+    FROM dark_flares
+    WHERE confidence IN ('sole', 'majority')
+    GROUP BY 1
+),
+reported AS (
+    SELECT operator_name AS operator,
+        round(sum(total_flared_mcf) / 1e6, 2) AS reported_bcf,
+        round(sum(total_gas_prod_mcf) / 1e6, 2) AS produced_bcf,
+        round(100.0 * sum(total_flared_mcf) / NULLIF(sum(total_gas_prod_mcf), 0), 2) AS flare_intensity_pct
+    FROM reported_flaring
+    WHERE district IN ('7B','7C','08','8A') AND year >= 2024
+    GROUP BY 1
+),
+plumes AS (
+    SELECT operator_name AS operator,
+        count(*) AS plume_count,
+        round(sum(emission_rate), 0) AS plume_total_kg_hr,
+        sum(CASE WHEN classification = 'unlit' THEN 1 ELSE 0 END) AS unlit_plumes
+    FROM plume_attributed WHERE operator_name IS NOT NULL
+    GROUP BY 1
+)
+SELECT v.operator,
+    v.vnf_sites, v.total_rh_mw, v.dark_rh_mw, v.pct_dark,
+    v.total_detection_days, v.dark_detection_days,
+    r.reported_bcf, r.produced_bcf, r.flare_intensity_pct,
+    p.plume_count, p.plume_total_kg_hr, p.unlit_plumes
+FROM vnf v
+LEFT JOIN reported r ON r.operator = v.operator
+LEFT JOIN plumes p ON p.operator = v.operator
+WHERE v.total_rh_mw >= 200
+ORDER BY v.total_rh_mw DESC;
+
+-- Top operators quarterly trend (top 5 by satellite flaring)
+CREATE OR REPLACE VIEW operator_quarterly AS
+WITH top5 AS (
+    SELECT COALESCE(operator_name, 'Unknown') AS operator
+    FROM dark_flares
+    WHERE confidence IN ('sole','majority')
+    GROUP BY 1
+    ORDER BY sum(rh_mw) DESC LIMIT 5
+)
+SELECT
+    date_trunc('quarter', df.date)::DATE AS quarter,
+    COALESCE(df.operator_name, 'Unknown') AS operator,
+    count(*) AS detection_days,
+    sum(CASE WHEN df.is_dark THEN 1 ELSE 0 END) AS dark_days,
+    round(sum(df.rh_mw), 0) AS total_rh_mw
+FROM dark_flares df
+WHERE COALESCE(df.operator_name, 'Unknown') IN (SELECT operator FROM top5)
+  AND df.confidence IN ('sole','majority')
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+-- Reported flaring by operator (quarterly, Permian only)
+CREATE OR REPLACE VIEW operator_reported AS
+SELECT
+    operator_name AS operator,
+    (year::VARCHAR || '-' || LPAD(CASE
+        WHEN month <= 3 THEN '01' WHEN month <= 6 THEN '04'
+        WHEN month <= 9 THEN '07' ELSE '10' END, 2, '0') || '-01')::DATE AS quarter,
+    round(sum(total_flared_mcf) / 1e3, 0) AS reported_mmcf,
+    round(sum(total_gas_prod_mcf) / 1e3, 0) AS produced_mmcf,
+    count(DISTINCT lease_no || district) AS active_leases
+FROM reported_flaring
+WHERE district IN ('7B','7C','08','8A') AND year >= 2024
+GROUP BY 1, 2 ORDER BY 1, 2;
