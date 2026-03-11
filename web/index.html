@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Permian Basin flaring monitor</title>
+    <title>gaslight / dark flaring in the permian basin</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2240%22 fill=%22%23e74c3c%22/%3E%3C/svg%3E">
     <link rel="stylesheet" href="vendor/fonts/inter.css">
     <link rel="stylesheet" href="vendor/maplibre-gl.css">
@@ -23,10 +23,10 @@
 
     <div class="panel glass left-panel" id="left-panel">
         <div class="panel-header">
-            <h1>Permian flaring</h1>
+            <h1>gaslight</h1>
             <span class="collapse-toggle" id="collapse-toggle"><svg width="12" height="12" viewBox="0 0 12 12"><polyline points="2,8 6,4 10,8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         </div>
-        <p class="subtitle">Dark flaring monitor</p>
+        <p class="subtitle">Dark flaring in the Permian</p>
 
         <div class="panel-body">
             <div class="separator"></div>
@@ -52,12 +52,6 @@
                 </div>
             </div>
 
-            <div class="separator"></div>
-            <div class="toggle-row" id="dark-only-toggle">
-                <span class="filter-label">Dark flares only</span>
-                <input type="checkbox">
-            </div>
-
             <div class="filter-group">
                 <input type="text" class="operator-search" id="operator-search" placeholder="Filter by operator...">
             </div>
@@ -67,11 +61,17 @@
     <div class="panel glass right-panel hidden" id="detail-panel">
         <div class="detail-header">
             <div class="detail-header-text">
-                <span class="detail-id" id="detail-title"></span>
+                <div class="detail-title-row"><span class="detail-id" id="detail-title"></span><span class="status-badge hidden" id="detail-badge"></span></div>
                 <span class="detail-coords" id="detail-coords"></span>
+            </div>
+            <div class="overlap-nav hidden" id="overlap-nav">
+                <button class="overlap-btn" id="overlap-prev"><svg width="12" height="12" viewBox="0 0 12 12"><polyline points="8,2 4,6 8,10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                <span class="overlap-count" id="overlap-count"></span>
+                <button class="overlap-btn" id="overlap-next"><svg width="12" height="12" viewBox="0 0 12 12"><polyline points="4,2 8,6 4,10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
             <button class="close-btn" id="detail-close">&times;</button>
         </div>
+        <div class="intensity-chart" id="intensity-chart"></div>
         <div id="detail-body"></div>
     </div>
 
@@ -81,13 +81,11 @@
             <span class="legend-collapse" id="legend-collapse"><svg width="12" height="12" viewBox="0 0 12 12"><polyline points="2,4 6,8 10,4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         </div>
         <div class="legend-body">
-            <div class="legend-item"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #ff6b35;"></span></span>Dark flare</div>
-            <div class="legend-item"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #2ecc71;"></span></span>Permitted flare</div>
-            <div class="legend-item"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #666;"></span></span>Near excluded facility</div>
-            <div class="legend-item" id="legend-permits" style="display:none"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #3498db;"></span></span>Permit location</div>
-            <div class="legend-item" id="legend-plumes-flaring" style="display:none"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #f39c12;"></span></span>Plume (flaring)</div>
-            <div class="legend-item" id="legend-plumes-unlit" style="display:none"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #e67e22;"></span></span>Plume (unlit)</div>
-            <div class="legend-item" id="legend-plumes-other" style="display:none"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #9b59b6;"></span></span>Plume (wellpad)</div>
+            <div class="legend-item"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #ff4422;"></span></span>Dark flare</div>
+            <div class="legend-item"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #00ff88;"></span></span>Permitted flare</div>
+            <div class="legend-item"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #888;"></span></span>Near excluded facility</div>
+            <div class="legend-item" id="legend-permits" style="display:none"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #00ccff;"></span></span>Permit location</div>
+            <div class="legend-item" id="legend-plumes" style="display:none"><span class="legend-src-wrap"><span class="legend-circle-fill" style="background: #ff44ff;"></span></span>Methane plume</div>
         </div>
     </div>
 

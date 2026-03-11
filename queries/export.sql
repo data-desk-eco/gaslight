@@ -1,4 +1,5 @@
 LOAD spatial;
+SET VARIABLE start_date = '2021-01-01'::DATE;
 
 COPY (
     SELECT
@@ -28,7 +29,7 @@ COPY (
             sum(CASE WHEN is_dark THEN 1 ELSE 0 END) AS dark_days,
             count(*) AS total_days,
             sum(rh_mw) AS total_rh_mw,
-            avg(rh_mw) AS avg_rh_mw
+            avg(rh_mw) FILTER (rh_mw > 0) AS avg_rh_mw
         FROM dark_flares GROUP BY flare_id
     ) d USING (flare_id)
 ) TO 'web/data/flares.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
@@ -93,4 +94,18 @@ COPY (
         vnf_flare_id,
         round(vnf_distance_km, 3) AS vnf_distance_km
     FROM plume_attributed
+    WHERE latitude BETWEEN 30.0 AND 33.5
+      AND longitude BETWEEN -104.5 AND -100.0
 ) TO 'web/data/plumes.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
+COPY (
+    SELECT
+        v.flare_id,
+        CAST(v.date AS VARCHAR) AS date,
+        round(v.rh_mw, 2) AS rh_mw,
+        COALESCE(df.is_dark, TRUE) AS is_dark
+    FROM raw.vnf v
+    JOIN flare_sites fs USING (flare_id)
+    LEFT JOIN dark_flares df ON df.flare_id = v.flare_id AND df.date = v.date
+    WHERE v.detected AND v.date >= getvariable('start_date')
+) TO 'web/data/detections.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);

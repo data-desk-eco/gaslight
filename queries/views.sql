@@ -1,5 +1,7 @@
 LOAD spatial;
 
+SET VARIABLE start_date = '2021-01-01'::DATE;
+
 -- ============================================================
 -- Core analysis table: dark_flares (site × day)
 -- ============================================================
@@ -31,7 +33,7 @@ WITH matched AS (
         AND (spc.expiration_dt IS NULL OR spc.expiration_dt >= v.date)
     WHERE v.detected
       AND NOT fs.near_excluded_facility
-      AND v.date >= (SELECT MIN(TRY_STRPTIME(submittal_dt, '%m/%d/%Y'))::DATE FROM raw.permits)
+      AND v.date >= getvariable('start_date')
 )
 SELECT * EXCLUDE (rn) FROM matched WHERE rn = 1;
 
@@ -55,7 +57,7 @@ WITH detection_leases AS (
     LEFT JOIN site_operators so ON so.flare_id = v.flare_id
     WHERE v.detected
       AND NOT fs.near_excluded_facility
-      AND v.date >= (SELECT MIN(TRY_STRPTIME(submittal_dt, '%m/%d/%Y'))::DATE FROM raw.permits)
+      AND v.date >= getvariable('start_date')
 ),
 with_weights AS (
     SELECT *,
@@ -71,14 +73,14 @@ FROM with_weights;
 CREATE OR REPLACE TABLE lease_flaring AS
 WITH months AS (
     SELECT DISTINCT date_trunc('month', date)::DATE AS month
-    FROM dark_flares WHERE date >= '2023-10-01'
+    FROM dark_flares WHERE date >= getvariable('start_date')
 ),
 reported AS (
     SELECT district AS lease_district, lease_no AS lease_number,
         (year::VARCHAR || '-' || LPAD(month::VARCHAR, 2, '0') || '-01')::DATE AS month,
         operator_name, lease_name, total_flared_mcf
     FROM reported_flaring
-    WHERE district IN ('7B','7C','08','8A') AND year >= 2023
+    WHERE district IN ('7B','7C','08','8A') AND year >= extract(year FROM getvariable('start_date'))
 ),
 vnf AS (
     SELECT lease_district, lease_number,
@@ -134,60 +136,6 @@ LEFT JOIN permit_days pd
     ON pd.lease_district = COALESCE(r.lease_district, v.lease_district)
     AND LPAD(pd.lease_number, 6, '0') = LPAD(COALESCE(r.lease_number, v.lease_number), 6, '0')
     AND pd.month = COALESCE(r.month, v.month);
-
--- ============================================================
--- Notebook views (all notebook SQL = SELECT * FROM view)
--- ============================================================
-
-CREATE OR REPLACE VIEW headline AS
-SELECT
-    count(DISTINCT CASE WHEN is_dark THEN flare_id END) AS dark_sites,
-    sum(CASE WHEN is_dark THEN 1 ELSE 0 END) AS dark_days,
-    sum(1) AS total_days,
-    round(100.0 * sum(CASE WHEN is_dark THEN 1 ELSE 0 END) / count(*), 0) AS pct_dark,
-    round(sum(CASE WHEN is_dark THEN rh_mw ELSE 0 END), 0) AS dark_rh_mw,
-    (SELECT round(sum(unpermitted_flared_mcf) / 1e6, 1) FROM lease_flaring) AS unpermitted_bcf,
-    (SELECT round(100.0 * sum(unpermitted_flared_mcf) / NULLIF(sum(reported_flared_mcf), 0), 0) FROM lease_flaring WHERE reported_flared_mcf > 0) AS pct_reported_unpermitted
-FROM dark_flares;
-
-CREATE OR REPLACE VIEW dark_sites AS
-SELECT flare_id,
-    extract(year FROM date)::INTEGER AS year,
-    COALESCE(operator_name, 'Unknown') AS operator,
-    confidence,
-    round(avg(vnf_lat), 4) AS lat, round(avg(vnf_lon), 4) AS lon,
-    count(*) AS detection_days,
-    round(sum(rh_mw), 1) AS total_rh_mw,
-    round(avg(rh_mw), 2) AS avg_rh_mw
-FROM dark_flares WHERE is_dark
-GROUP BY flare_id, year, operator, confidence;
-
-CREATE OR REPLACE VIEW dark_operators AS
-SELECT
-    COALESCE(operator_name, 'Unknown') AS operator,
-    count(DISTINCT flare_id) AS sites,
-    count(*) AS detection_days,
-    round(sum(rh_mw), 0) AS total_rh_mw
-FROM dark_flares
-WHERE is_dark AND confidence IN ('sole', 'majority')
-GROUP BY 1 ORDER BY total_rh_mw DESC
-LIMIT 15;
-
-CREATE OR REPLACE VIEW top_leases AS
-SELECT
-    lease_district AS district, lease_number,
-    max(operator_name) AS operator, max(lease_name) AS lease_name,
-    count(*) AS months,
-    round(sum(reported_flared_mcf), 0) AS reported_mcf,
-    round(sum(unpermitted_flared_mcf), 0) AS unpermitted_mcf,
-    sum(vnf_detection_days) AS vnf_days,
-    round(sum(vnf_rh_mw), 1) AS vnf_rh_mw,
-    round(avg(permit_coverage), 2) AS avg_coverage
-FROM lease_flaring
-WHERE reported_flared_mcf > 0 OR vnf_detection_days > 0
-GROUP BY 1, 2
-HAVING sum(unpermitted_flared_mcf) > 0
-ORDER BY unpermitted_mcf DESC;
 
 -- ============================================================
 -- Plume attribution (separate analysis pipeline)
@@ -257,7 +205,7 @@ reported AS (
         round(sum(total_gas_prod_mcf) / 1e6, 2) AS produced_bcf,
         round(100.0 * sum(total_flared_mcf) / NULLIF(sum(total_gas_prod_mcf), 0), 2) AS flare_intensity_pct
     FROM reported_flaring
-    WHERE district IN ('7B','7C','08','8A') AND year >= 2024
+    WHERE district IN ('7B','7C','08','8A') AND year >= extract(year FROM getvariable('start_date'))
     GROUP BY 1
 ),
 plumes AS (
@@ -279,23 +227,3 @@ LEFT JOIN plumes p ON p.operator = v.operator
 WHERE v.total_rh_mw >= 200
 ORDER BY v.total_rh_mw DESC;
 
--- Top operators quarterly trend (top 5 by satellite flaring)
-CREATE OR REPLACE VIEW operator_quarterly AS
-WITH top5 AS (
-    SELECT COALESCE(operator_name, 'Unknown') AS operator
-    FROM dark_flares
-    WHERE confidence IN ('sole','majority')
-    GROUP BY 1
-    ORDER BY sum(rh_mw) DESC LIMIT 5
-)
-SELECT
-    date_trunc('quarter', df.date)::DATE AS quarter,
-    COALESCE(df.operator_name, 'Unknown') AS operator,
-    count(*) AS detection_days,
-    sum(CASE WHEN df.is_dark THEN 1 ELSE 0 END) AS dark_days,
-    round(sum(df.rh_mw), 0) AS total_rh_mw
-FROM dark_flares df
-WHERE COALESCE(df.operator_name, 'Unknown') IN (SELECT operator FROM top5)
-  AND df.confidence IN ('sole','majority')
-GROUP BY 1, 2
-ORDER BY 1, 2;

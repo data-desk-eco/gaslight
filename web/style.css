@@ -7,13 +7,11 @@
     --text-muted: rgba(255, 255, 255, 0.6);
     --text-faint: rgba(255, 255, 255, 0.4);
     --text-hint: rgba(255, 255, 255, 0.35);
-    --color-dark: #ff6b35;
-    --color-permitted: #2ecc71;
-    --color-excluded: #666;
-    --color-permit: #3498db;
-    --color-plume-flaring: #f39c12;
-    --color-plume-unlit: #e67e22;
-    --color-plume-other: #9b59b6;
+    --color-dark: #ff4422;
+    --color-permitted: #00ff88;
+    --color-excluded: #888;
+    --color-permit: #00ccff;
+    --color-plume: #ff44ff;
     --edge-spacing: 16px;
     --font-xs: 10px;
     --font-sm: 11px;
@@ -92,6 +90,29 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
 .filter-group { margin-top: 10px; }
 .filter-label { font-size: var(--font-sm); font-weight: 500; color: var(--text-faint); margin-bottom: 6px; }
 
+.filter-buttons {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--border-light);
+}
+.filter-btn {
+    flex: 1;
+    padding: 3px 0;
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-family: inherit;
+    font-size: var(--font-xs);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.filter-btn + .filter-btn { border-left: 1px solid var(--border-light); }
+.filter-btn:hover { color: var(--text-muted); }
+.filter-btn.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+}
+
 .right-panel {
     top: var(--edge-spacing); right: var(--edge-spacing); width: 300px;
     max-height: calc(100vh - 32px); overflow-y: auto;
@@ -106,6 +127,42 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
     flex-shrink: 0; background: none; border: none;
 }
 .close-btn:hover { color: var(--text-primary); }
+
+.overlap-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+.overlap-btn {
+    background: none;
+    border: 1px solid var(--border-light);
+    border-radius: 0;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, border-color 0.15s;
+    padding: 0;
+}
+.overlap-btn:hover { color: var(--text-primary); border-color: var(--text-faint); }
+.overlap-count {
+    font-size: var(--font-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    min-width: 32px;
+    text-align: center;
+}
+
+.intensity-chart { padding: 8px 16px; border-bottom: 1px solid var(--border-subtle); }
+.intensity-chart:empty { display: none; }
+.intensity-chart svg { width: 100%; height: 64px; display: block; }
+.intensity-chart .chart-dot:hover { r: 3; }
 
 .stats-grid { padding: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .stat { text-align: center; }
@@ -122,10 +179,11 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
 .status-badge {
     display: inline-block; padding: 2px 8px; font-size: var(--font-xs); font-weight: 500; border: 1px solid;
 }
-.status-badge.dark { color: var(--color-dark); border-color: var(--color-dark); background: rgba(255, 107, 53, 0.15); }
-.status-badge.permitted { color: var(--color-permitted); border-color: var(--color-permitted); background: rgba(46, 204, 113, 0.15); }
+.status-badge.dark { color: var(--color-dark); border-color: var(--color-dark); background: rgba(255, 68, 34, 0.15); }
+.status-badge.permitted { color: var(--color-permitted); border-color: var(--color-permitted); background: rgba(0, 255, 136, 0.15); }
 .status-badge.excluded { color: var(--color-excluded); border-color: var(--color-excluded); background: rgba(102, 102, 102, 0.15); }
-.status-badge.unlit { color: var(--color-plume-unlit); border-color: var(--color-plume-unlit); background: rgba(230, 126, 34, 0.15); }
+.detail-title-row { display: flex; align-items: center; gap: 8px; }
+#detail-badge { flex-shrink: 0; }
 
 .flare-popup .maplibregl-popup-content {
     background: var(--bg-panel); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);

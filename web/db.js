@@ -19,7 +19,7 @@ async function _init() {
     await db.instantiate(mainModule);
     conn = await db.connect();
 
-    const files = ['flares', 'flare_leases', 'permits', 'plumes'];
+    const files = ['flares', 'flare_leases', 'permits', 'plumes', 'detections'];
     await Promise.all(files.map(async name => {
         const resp = await fetch(`data/${name}.parquet`);
         const buf = await resp.arrayBuffer();
@@ -46,10 +46,9 @@ function rows(result) {
     return out;
 }
 
-export async function queryFlares({ operator, darkOnly } = {}) {
+export async function queryFlares({ operator } = {}) {
     let where = 'WHERE 1=1';
     if (operator) where += ` AND lower(operator_name) LIKE '%${operator.toLowerCase().replace(/'/g, "''")}%'`;
-    if (darkOnly) where += ' AND dark_pct > 50';
 
     const result = await query(`
         SELECT flare_id, lat, lon, detection_days, dark_days, total_days, dark_pct,
@@ -67,6 +66,16 @@ export async function queryFlares({ operator, darkOnly } = {}) {
             properties: r
         }))
     };
+}
+
+export async function queryDetections(flareId) {
+    const result = await query(`
+        SELECT date, rh_mw, is_dark
+        FROM 'detections.parquet'
+        WHERE flare_id = ${Number(flareId)}
+        ORDER BY date
+    `);
+    return rows(result);
 }
 
 export async function queryFlareLeases(flareId) {

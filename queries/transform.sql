@@ -7,6 +7,7 @@ LOAD spatial;
 -- Match radii (meters, for ST_Distance_Sphere)
 SET VARIABLE permit_radius = 1000;    -- 1km for VNF ↔ permit location
 SET VARIABLE plume_radius = 1000;     -- 1km for plume ↔ well/VNF
+SET VARIABLE start_date = '2021-01-01'::DATE;
 
 -- Flare sites: one row per VNF site with exclusion flag
 CREATE OR REPLACE TABLE flare_sites AS
@@ -30,20 +31,22 @@ FROM (
         ST_Point(AVG(lon), AVG(lat)) AS geom,
         MIN(date) AS first_detected, MAX(date) AS last_detected,
         COUNT(*) AS detection_days
-    FROM raw.vnf WHERE detected
+    FROM raw.vnf WHERE detected AND date >= getvariable('start_date')
     GROUP BY flare_id
 ) f;
 
 CREATE INDEX IF NOT EXISTS idx_flare_sites_geom ON flare_sites USING RTREE (geom);
 
--- Upstream flare locations (exclude Gas Plant permits and Gas Plant facility types)
+-- Upstream flare locations (exclude Gas Plant permits, Gas Plant facility types, and non-Permian)
 CREATE OR REPLACE TABLE flare_locations AS
 SELECT fl.*
 FROM raw.flare_locations fl
 WHERE fl.filing_no::VARCHAR NOT IN (
     SELECT filing_no FROM raw.permits WHERE property_type = 'Gas Plant'
 )
-AND COALESCE(fl.facility_type, '') NOT ILIKE '%gas plant%';
+AND COALESCE(fl.facility_type, '') NOT ILIKE '%gas plant%'
+AND fl.latitude BETWEEN 30.0 AND 33.5
+AND fl.longitude BETWEEN -104.5 AND -100.0;
 
 -- Permit lease map: flatten permit_properties to all underlying leases per filing
 -- For commingle permits, this maps the commingle filing to its oil/gas leases

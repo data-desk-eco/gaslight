@@ -1,17 +1,36 @@
-name: Deploy notebook
+name: Deploy
 
 on:
-  schedule:
-    - cron: '0 6 1 * *'  # Monthly on the 1st
-  workflow_dispatch:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  deploy:
-    uses: data-desk-eco/.github/.github/workflows/notebook-deploy.yml@main
+  deploy-pages:
+    runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pages: write
       id-token: write
-    secrets: inherit
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vendor JS dependencies
+        run: scripts/vendor.sh
+
+      - name: Prepare dist
+        run: |
+          mkdir -p dist
+          cp web/index.html web/app.js web/db.js web/style.css dist/
+          cp -r web/vendor dist/vendor
+          cp -r web/data dist/data
+
+      - uses: actions/configure-pages@v4
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

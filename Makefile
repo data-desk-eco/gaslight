@@ -1,21 +1,9 @@
 WORKERS ?= 32
 export WORKERS
 
-.PHONY: all build preview data db refresh permits permit-details rrc vnf plumes clean map-data map-vendor map-serve
+.PHONY: all db refresh export vendor serve permits permit-details rrc vnf plumes clean help
 
 all: db
-
-# --- notebook ---
-
-build:
-	yarn build
-
-preview:
-	yarn preview
-
-data:
-	gh release download data-v1 -p dark_flaring.duckdb.gz -D data --clobber
-	gunzip -f data/dark_flaring.duckdb.gz
 
 # --- scrapers ---
 
@@ -23,7 +11,6 @@ permits: data/filings.csv
 rrc: data/wells.csv data/operators.csv
 vnf: data/vnf_profiles/.done
 plumes: data/plumes_cm.csv data/plumes_imeo.csv
-
 permit-details: data/permit_details.csv
 
 data/filings.csv:
@@ -81,19 +68,35 @@ data/dark_flaring.duckdb: data/filings.csv data/wells.csv data/operators.csv dat
 	duckdb $@ < queries/views.sql
 	@echo "Database ready: $@"
 
-clean:
-	rm -f data/dark_flaring.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/plumes_cm.csv data/plumes_imeo.csv data/vnf.parquet data/gas_disposition.parquet
-	rm -rf docs/.observable/dist
+# --- web app ---
 
-# --- map ---
-
-map-data: data/dark_flaring.duckdb queries/export.sql
+export: data/dark_flaring.duckdb queries/export.sql
 	mkdir -p web/data
 	duckdb data/dark_flaring.duckdb < queries/export.sql
-	@echo "Map data exported to web/data/"
 
-map-vendor:
+vendor:
 	scripts/vendor.sh
 
-map-serve:
+serve:
 	python3 -m http.server 8080 -d web
+
+clean:
+	rm -f data/dark_flaring.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/plumes_cm.csv data/plumes_imeo.csv data/vnf.parquet data/gas_disposition.parquet
+
+help:
+	@echo "gaslight — dark flaring analysis for the Permian Basin"
+	@echo ""
+	@echo "  make db              Full pipeline (schema → load → transform → views)"
+	@echo "  make refresh         Rebuild database from scratch"
+	@echo "  make export          Export parquets for web app"
+	@echo "  make vendor          Download vendored JS dependencies"
+	@echo "  make serve           Dev server on :8080"
+	@echo ""
+	@echo "  make permits         Scrape SWR 32 permit metadata"
+	@echo "  make permit-details  Scrape + parse permit detail pages"
+	@echo "  make rrc             Download + parse RRC EBCDIC files"
+	@echo "  make vnf             Fetch VNF profiles from EOG"
+	@echo "  make plumes          Fetch Carbon Mapper + IMEO plumes"
+	@echo ""
+	@echo "  make clean           Remove derived data"
+	@echo "  make help            This message"

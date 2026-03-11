@@ -1,7 +1,7 @@
 [project]
-name = "tx-swr32"
+name = "gaslight"
 version = "0.1.0"
-description = "Dark flaring analysis: SWR 32 permits vs VIIRS Nightfire detections"
+description = "Dark flaring analysis for the Permian Basin"
 requires-python = ">=3.10"
 dependencies = [
     "playwright",

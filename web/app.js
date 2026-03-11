@@ -1,18 +1,17 @@
 import * as db from './db.js';
 
 const COLORS = {
-    dark: '#ff6b35',
-    permitted: '#2ecc71',
-    excluded: '#666',
-    permit: '#3498db',
-    plumeFlaring: '#f39c12',
-    plumeUnlit: '#e67e22',
-    plumeOther: '#9b59b6'
+    dark: '#ff4422',
+    permitted: '#00ff88',
+    excluded: '#888',
+    permit: '#00ccff',
+    plume: '#ff44ff'
 };
 
 let layerState = { flares: true, permits: false, plumes: false };
-let darkOnly = false;
 let operatorFilter = '';
+let overlappingFeatures = [];
+let overlapIndex = 0;
 
 const map = new maplibregl.Map({
     container: 'map',
@@ -47,6 +46,9 @@ const map = new maplibregl.Map({
     },
     center: [-102.5, 31.8],
     zoom: 7,
+    minZoom: 5,
+    maxBounds: [[-110, 26], [-95, 37]],
+    projection: 'globe',
     hash: 'map'
 });
 
@@ -72,18 +74,18 @@ function addEmptySources() {
 }
 
 function addLayers() {
-    // Flare radius: scale on total_rh_mw for area-proportional sizing
+    // Flare radius: scale on total_rh_mw (MW)
     const flareRadius = [
         'interpolate', ['linear'],
-        ['coalesce', ['get', 'total_rh_mw'], 1],
-        1, 3, 50, 7, 200, 12, 1000, 20, 5000, 30
+        ['coalesce', ['get', 'total_rh_mw'], 0],
+        0, 2, 10, 4, 50, 7, 200, 12, 1000, 20, 5000, 32
     ];
 
-    // Permit radius: scale on max_release_rate_mcf_day
+    // Permit radius: sqrt-ish scale on max_release_rate_mcf_day (huge range, 3–680K)
     const permitRadius = [
         'interpolate', ['linear'],
         ['coalesce', ['get', 'max_release_rate_mcf_day'], 0],
-        0, 2, 10, 3, 50, 5, 200, 8, 1000, 12
+        0, 1.5, 100, 2, 1000, 3.5, 5000, 6, 25000, 10, 100000, 16
     ];
 
     map.addLayer({
@@ -92,45 +94,44 @@ function addLayers() {
         paint: {
             'circle-radius': permitRadius,
             'circle-color': 'transparent',
-            'circle-stroke-width': 1.5,
+            'circle-stroke-width': 1,
             'circle-stroke-color': COLORS.permit,
-            'circle-stroke-opacity': 0.6
+            'circle-stroke-opacity': 0.4
         }
     });
 
     map.addLayer({
-        id: 'plumes-other', type: 'circle', source: 'plumes',
+        id: 'plumes-layer', type: 'circle', source: 'plumes',
         layout: { visibility: 'none' },
-        filter: ['!', ['in', ['get', 'classification'], ['literal', ['flaring', 'unlit']]]],
-        paint: { 'circle-radius': plumeRadius(), 'circle-color': 'transparent', 'circle-stroke-width': 1.5, 'circle-stroke-color': COLORS.plumeOther, 'circle-stroke-opacity': 0.6 }
+        paint: { 'circle-radius': plumeRadius(), 'circle-color': 'transparent', 'circle-stroke-width': 1, 'circle-stroke-color': COLORS.plume, 'circle-stroke-opacity': 0.6 }
     });
-    map.addLayer({
-        id: 'plumes-unlit', type: 'circle', source: 'plumes',
-        layout: { visibility: 'none' },
-        filter: ['==', ['get', 'classification'], 'unlit'],
-        paint: { 'circle-radius': plumeRadius(), 'circle-color': 'transparent', 'circle-stroke-width': 1.5, 'circle-stroke-color': COLORS.plumeUnlit, 'circle-stroke-opacity': 0.7 }
-    });
-    map.addLayer({
-        id: 'plumes-flaring', type: 'circle', source: 'plumes',
-        layout: { visibility: 'none' },
-        filter: ['==', ['get', 'classification'], 'flaring'],
-        paint: { 'circle-radius': plumeRadius(), 'circle-color': 'transparent', 'circle-stroke-width': 1.5, 'circle-stroke-color': COLORS.plumeFlaring, 'circle-stroke-opacity': 0.7 }
-    });
+
+    // Flare stroke color ramps by avg_rh_mw: dim base → bright/white at high intensity
+    const darkColorRamp = [
+        'interpolate', ['linear'],
+        ['coalesce', ['get', 'avg_rh_mw'], 0],
+        0, '#991100', 1, '#ff4422', 5, '#ff8844', 20, '#ffcc44', 50, '#ffeeaa'
+    ];
+    const permittedColorRamp = [
+        'interpolate', ['linear'],
+        ['coalesce', ['get', 'avg_rh_mw'], 0],
+        0, '#006633', 1, '#00ff88', 5, '#66ffaa', 20, '#aaffcc', 50, '#ccffdd'
+    ];
 
     map.addLayer({
         id: 'flares-excluded', type: 'circle', source: 'flares',
         filter: ['==', ['get', 'near_excluded_facility'], true],
-        paint: { 'circle-radius': flareRadius, 'circle-color': 'transparent', 'circle-stroke-width': 1.5, 'circle-stroke-color': COLORS.excluded, 'circle-stroke-opacity': 0.5 }
+        paint: { 'circle-radius': flareRadius, 'circle-color': 'transparent', 'circle-stroke-width': 1, 'circle-stroke-color': COLORS.excluded, 'circle-stroke-opacity': 0.4 }
     });
     map.addLayer({
         id: 'flares-permitted', type: 'circle', source: 'flares',
         filter: ['all', ['!=', ['get', 'near_excluded_facility'], true], ['<=', ['get', 'dark_pct'], 50]],
-        paint: { 'circle-radius': flareRadius, 'circle-color': 'transparent', 'circle-stroke-width': 1.5, 'circle-stroke-color': COLORS.permitted, 'circle-stroke-opacity': 0.8 }
+        paint: { 'circle-radius': flareRadius, 'circle-color': 'transparent', 'circle-stroke-width': 1, 'circle-stroke-color': permittedColorRamp, 'circle-stroke-opacity': 0.7 }
     });
     map.addLayer({
         id: 'flares-dark', type: 'circle', source: 'flares',
         filter: ['all', ['!=', ['get', 'near_excluded_facility'], true], ['>', ['get', 'dark_pct'], 50]],
-        paint: { 'circle-radius': flareRadius, 'circle-color': 'transparent', 'circle-stroke-width': 1.5, 'circle-stroke-color': COLORS.dark, 'circle-stroke-opacity': 0.9 }
+        paint: { 'circle-radius': flareRadius, 'circle-color': 'transparent', 'circle-stroke-width': 1, 'circle-stroke-color': darkColorRamp, 'circle-stroke-opacity': 0.8 }
     });
 }
 
@@ -139,7 +140,7 @@ function plumeRadius() {
 }
 
 async function refreshFlares() {
-    const data = await db.queryFlares({ operator: operatorFilter || undefined, darkOnly });
+    const data = await db.queryFlares({ operator: operatorFilter || undefined });
     map.getSource('flares').setData(data);
 }
 
@@ -165,12 +166,12 @@ async function updateStats() {
 const LAYER_MAP = {
     flares: ['flares-dark', 'flares-permitted', 'flares-excluded'],
     permits: ['permits-layer'],
-    plumes: ['plumes-flaring', 'plumes-unlit', 'plumes-other']
+    plumes: ['plumes-layer']
 };
 
 const LEGEND_MAP = {
     permits: ['legend-permits'],
-    plumes: ['legend-plumes-flaring', 'legend-plumes-unlit', 'legend-plumes-other']
+    plumes: ['legend-plumes']
 };
 
 function setLayerVisibility(layer, visible) {
@@ -188,6 +189,12 @@ function setLayerVisibility(layer, visible) {
         if (layer === 'plumes') loadPlumes();
     }
 }
+
+const ALL_CLICK_LAYERS = [
+    'flares-dark', 'flares-permitted', 'flares-excluded',
+    'permits-layer',
+    'plumes-layer'
+];
 
 function bindUI() {
     document.getElementById('collapse-toggle').addEventListener('click', () => {
@@ -207,9 +214,6 @@ function bindUI() {
         });
     }
 
-    const darkCb = document.querySelector('#dark-only-toggle input');
-    darkCb.addEventListener('change', () => { darkOnly = darkCb.checked; refreshFlares(); });
-
     let searchTimeout;
     document.getElementById('operator-search').addEventListener('input', e => {
         clearTimeout(searchTimeout);
@@ -222,19 +226,50 @@ function bindUI() {
     document.getElementById('detail-close').addEventListener('click', closeDetail);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
 
-    const clickLayers = ['flares-dark', 'flares-permitted', 'flares-excluded'];
-    for (const id of clickLayers) {
-        map.on('click', id, e => showFlareDetail(e.features[0]));
-        map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
-    }
+    // Overlap navigation
+    document.getElementById('overlap-prev').addEventListener('click', () => {
+        if (overlappingFeatures.length < 2) return;
+        overlapIndex = (overlapIndex - 1 + overlappingFeatures.length) % overlappingFeatures.length;
+        showFeatureDetail(overlappingFeatures[overlapIndex]);
+    });
+    document.getElementById('overlap-next').addEventListener('click', () => {
+        if (overlappingFeatures.length < 2) return;
+        overlapIndex = (overlapIndex + 1) % overlappingFeatures.length;
+        showFeatureDetail(overlappingFeatures[overlapIndex]);
+    });
 
-    map.on('click', 'permits-layer', e => showPermitDetail(e.features[0]));
-    map.on('mouseenter', 'permits-layer', () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'permits-layer', () => { map.getCanvas().style.cursor = ''; });
+    // Click-through: query all visible layers at click point
+    map.on('click', e => {
+        const tolerance = 10;
+        const bbox = [
+            [e.point.x - tolerance, e.point.y - tolerance],
+            [e.point.x + tolerance, e.point.y + tolerance]
+        ];
+        const activeLayers = ALL_CLICK_LAYERS.filter(l =>
+            map.getLayer(l) && map.getLayoutProperty(l, 'visibility') !== 'none'
+        );
+        const features = map.queryRenderedFeatures(bbox, { layers: activeLayers });
 
-    for (const id of ['plumes-flaring', 'plumes-unlit', 'plumes-other']) {
-        map.on('click', id, e => showPlumeDetail(e.features[0]));
+        if (features.length === 0) {
+            closeDetail();
+            return;
+        }
+
+        // Sort by distance to click
+        features.sort((a, b) => {
+            const [aLng, aLat] = a.geometry.coordinates;
+            const [bLng, bLat] = b.geometry.coordinates;
+            return Math.hypot(aLng - e.lngLat.lng, aLat - e.lngLat.lat)
+                 - Math.hypot(bLng - e.lngLat.lng, bLat - e.lngLat.lat);
+        });
+
+        overlappingFeatures = features;
+        overlapIndex = 0;
+        showFeatureDetail(features[0]);
+    });
+
+    // Cursor changes for interactive layers
+    for (const id of ALL_CLICK_LAYERS) {
         map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
     }
@@ -255,6 +290,24 @@ function showTooltip(e) {
 
 function closeDetail() {
     document.getElementById('detail-panel').classList.add('hidden');
+    overlappingFeatures = [];
+    overlapIndex = 0;
+}
+
+function showFeatureDetail(feature) {
+    const layer = feature.layer.id;
+    if (layer.startsWith('flares-')) showFlareDetail(feature);
+    else if (layer.startsWith('permits-')) showPermitDetail(feature);
+    else if (layer.startsWith('plumes-')) showPlumeDetail(feature);
+
+    // Update overlap nav
+    const nav = document.getElementById('overlap-nav');
+    if (overlappingFeatures.length > 1) {
+        nav.classList.remove('hidden');
+        document.getElementById('overlap-count').textContent = `${overlapIndex + 1} / ${overlappingFeatures.length}`;
+    } else {
+        nav.classList.add('hidden');
+    }
 }
 
 function field(label, value) {
@@ -271,6 +324,10 @@ async function showFlareDetail(feature) {
 
     document.getElementById('detail-title').textContent = `Flare ${p.flare_id}`;
     document.getElementById('detail-coords').textContent = `${Number(p.lat).toFixed(4)}, ${Number(p.lon).toFixed(4)}`;
+    const badge = document.getElementById('detail-badge');
+    badge.className = `status-badge ${status}`;
+    badge.textContent = statusLabel;
+    badge.classList.remove('hidden');
 
     let leaseHtml = '';
     try {
@@ -285,10 +342,8 @@ async function showFlareDetail(feature) {
         }
     } catch { /* lease query failed, skip */ }
 
+    document.getElementById('intensity-chart').innerHTML = '';
     document.getElementById('detail-body').innerHTML = `
-        <div class="detail-row" style="padding-top:0">
-            <span class="status-badge ${status}">${statusLabel}</span>
-        </div>
         <div class="stats-grid">
             <div class="stat"><div class="stat-big">${Number(p.avg_rh_mw).toFixed(1)}</div><div class="stat-unit">avg MW</div></div>
             <div class="stat"><div class="stat-big">${Number(p.dark_days).toLocaleString()}/${Number(p.total_days).toLocaleString()}</div><div class="stat-unit">dark/total days</div></div>
@@ -297,6 +352,7 @@ async function showFlareDetail(feature) {
             ${field('Operator', p.operator_name)}
             ${field('Confidence', p.confidence || 'N/A')}
             ${field('Nearest permit', [p.site_name, p.permit_name].filter(Boolean).join(', ') || 'None')}
+            ${field('Distance', p.nearest_permit_km != null ? Number(p.nearest_permit_km).toFixed(2) + ' km' : 'N/A')}
         </div>
         <div class="detail-row">
             ${field('First detected', formatDate(p.first_detected))}
@@ -305,19 +361,22 @@ async function showFlareDetail(feature) {
         ${leaseHtml}
     `;
     panel.classList.remove('hidden');
+
+    // Load sparkline async
+    db.queryDetections(p.flare_id).then(renderSparkline).catch(() => {});
 }
 
 function showPermitDetail(feature) {
     const p = feature.properties;
     const rate = Number(p.max_release_rate_mcf_day);
-    const days = Number(p.total_permitted_days);
+    document.getElementById('intensity-chart').innerHTML = '';
+    document.getElementById('detail-badge').classList.add('hidden');
     document.getElementById('detail-title').textContent = p.name || 'Permit location';
     document.getElementById('detail-coords').textContent = `${Number(p.latitude).toFixed(4)}, ${Number(p.longitude).toFixed(4)}`;
     document.getElementById('detail-body').innerHTML = `
         <div class="stats-grid">
             <div class="stat"><div class="stat-big">${rate > 0 ? rate.toLocaleString() : 'N/A'}</div><div class="stat-unit">max Mcf/day</div></div>
             <div class="stat"><div class="stat-big">${Number(p.n_filings)}</div><div class="stat-unit">filings</div></div>
-            <div class="stat"><div class="stat-big">${days > 0 ? days.toLocaleString() : 'N/A'}</div><div class="stat-unit">permitted days</div></div>
         </div>
         <div class="detail-row">
             ${field('Operator', p.operator_name || 'N/A')}
@@ -333,14 +392,25 @@ function showPermitDetail(feature) {
     document.getElementById('detail-panel').classList.remove('hidden');
 }
 
+function plumeUrl(source, id) {
+    if (source === 'cm') return `https://data.carbonmapper.org/?plume_id=${encodeURIComponent(id)}`;
+    if (source === 'imeo') return `https://methanedata.unep.org`;
+    return null;
+}
+
 function showPlumeDetail(feature) {
     const p = feature.properties;
-    document.getElementById('detail-title').textContent = `Plume ${p.plume_id}`;
+    document.getElementById('intensity-chart').innerHTML = '';
+    document.getElementById('detail-badge').classList.add('hidden');
+    const url = plumeUrl(p.source, p.plume_id);
+    const titleEl = document.getElementById('detail-title');
+    if (url) {
+        titleEl.innerHTML = `<a href="${url}" target="_blank" rel="noopener" style="color: inherit; text-decoration: underline;">Plume ${p.plume_id}</a>`;
+    } else {
+        titleEl.textContent = `Plume ${p.plume_id}`;
+    }
     document.getElementById('detail-coords').textContent = `${Number(p.latitude).toFixed(4)}, ${Number(p.longitude).toFixed(4)}`;
     document.getElementById('detail-body').innerHTML = `
-        <div class="detail-row" style="padding-top:0">
-            <span class="status-badge ${p.classification === 'unlit' ? 'unlit' : ''}">${p.classification}</span>
-        </div>
         <div class="stats-grid">
             <div class="stat"><div class="stat-big">${Number(p.emission_rate).toLocaleString()}</div><div class="stat-unit">kg/hr</div></div>
             <div class="stat"><div class="stat-big">&plusmn;${Number(p.emission_uncertainty || 0).toLocaleString()}</div><div class="stat-unit">uncertainty</div></div>
@@ -350,10 +420,55 @@ function showPlumeDetail(feature) {
             ${field('Satellite', p.satellite || 'N/A')}
             ${field('Date', formatDate(p.date))}
             ${field('Sector', p.sector || 'N/A')}
-            ${p.vnf_flare_id ? field('VNF match', `Flare ${p.vnf_flare_id} (${Number(p.vnf_distance_km).toFixed(3)} km)`) : ''}
         </div>
     `;
     document.getElementById('detail-panel').classList.remove('hidden');
+}
+
+function renderSparkline(detections) {
+    const container = document.getElementById('intensity-chart');
+    if (!detections?.length) { container.innerHTML = ''; return; }
+
+    const margin = { top: 6, right: 6, bottom: 14, left: 6 };
+    const width = 268, height = 64;
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+
+    const dates = detections.map(d => new Date(d.date).getTime());
+    const minDate = Math.min(...dates);
+    const maxDate = Math.max(...dates);
+    const dateRange = maxDate - minDate || 1;
+
+    // Log scale for rh_mw (MW)
+    const vals = detections.map(d => d.rh_mw).filter(v => v > 0);
+    const lo = 0.1, hi = Math.max(10, ...vals);
+
+    let svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">`;
+    svg += `<line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
+
+    // Year gridlines
+    const firstYear = new Date(minDate).getFullYear();
+    const lastYear = new Date(maxDate).getFullYear();
+    for (let y = firstYear + 1; y <= lastYear; y++) {
+        const jan1 = new Date(y, 0, 1).getTime();
+        const x = margin.left + ((jan1 - minDate) / dateRange) * innerW;
+        svg += `<line x1="${x}" y1="${margin.top}" x2="${x}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>`;
+        svg += `<text x="${x}" y="${height - 2}" fill="rgba(255,255,255,0.3)" font-size="8" text-anchor="middle">${y}</text>`;
+    }
+
+    // Detection dots — small for dense data
+    detections.forEach(det => {
+        const date = new Date(det.date).getTime();
+        const x = margin.left + ((date - minDate) / dateRange) * innerW;
+        const val = det.rh_mw || 0;
+        const t = val > 0 ? Math.max(0, Math.min(1, (Math.log(Math.max(lo, val)) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)))) : 0;
+        const y = margin.top + innerH - t * innerH;
+        const color = det.is_dark ? COLORS.dark : COLORS.permitted;
+        svg += `<circle class="chart-dot" cx="${x}" cy="${y}" r="1.5" fill="${color}" opacity="0.8"/>`;
+    });
+
+    svg += '</svg>';
+    container.innerHTML = svg;
 }
 
 function formatDate(d) {
