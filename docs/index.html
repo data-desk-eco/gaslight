@@ -158,7 +158,7 @@
 
     **Reported flaring volumes** come from PDQ production reports (disposition code 04 = vented/flared). Unpermitted volumes are estimated by pro-rating monthly reported volumes by the fraction of that month not covered by any active SWR 32 permit on the lease.
 
-    **Lease matching** uses two paths: (1) direct permit-to-lease linkage via SWR 32 filing properties, and (2) spatial matching of VNF sites to lease footprints (convex hull of EBCDIC well surface coordinates, buffered ~500 m).
+    **Lease matching** uses spatial containment: VNF sites within buffered lease footprints (convex hull of EBCDIC well surface coordinates, buffered ~500 m). `permit_lease_map` is used separately to calculate per-lease permit coverage, not for VNF-to-lease assignment.
 
     **Methane plumes** from Carbon Mapper and IMEO satellites are matched to wells and VNF sites within 1 km. Plumes near a VNF site are classified as "flaring" (if VIIRS detects a flare that day), "unlit" (VNF site present but no detection, indicating venting), or "wellpad" (near wells but no known flare).
 
