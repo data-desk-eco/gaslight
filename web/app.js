@@ -67,6 +67,7 @@ map.on('load', async () => {
 
 function addEmptySources() {
     const empty = { type: 'FeatureCollection', features: [] };
+    map.addSource('texas', { type: 'geojson', data: 'data/texas.geojson' });
     map.addSource('flares', { type: 'geojson', data: empty });
     map.addSource('permits', { type: 'geojson', data: empty });
     map.addSource('plumes', { type: 'geojson', data: empty });
@@ -79,6 +80,11 @@ function addLayers() {
         ['coalesce', ['get', 'total_rh_mw'], 0],
         0, 2, 10, 4, 50, 7, 200, 12, 1000, 20, 5000, 32
     ];
+
+    map.addLayer({
+        id: 'texas-border', type: 'line', source: 'texas',
+        paint: { 'line-color': 'rgba(255,255,255,0.2)', 'line-width': 1 }
+    });
 
     // Permit radius: sqrt-ish scale on max_release_rate_mcf_day (huge range, 3–680K)
     const permitRadius = [
@@ -104,27 +110,17 @@ function addLayers() {
         paint: { 'circle-radius': plumeRadius(), 'circle-color': 'transparent', 'circle-stroke-width': 1, 'circle-stroke-color': COLORS.plume }
     });
 
-    // Flare stroke color ramps by avg_rh_mw (p25=0.5, p50=0.8, p75=1.3, p90=2.1)
-    const darkColorRamp = [
+    // Flare stroke color ramp by avg_rh_mw (p25=0.5, p50=0.8, p75=1.3, p90=2.1)
+    const flareColorRamp = [
         'interpolate', ['linear'],
         ['coalesce', ['get', 'avg_rh_mw'], 0],
         0, '#660800', 0.3, '#991100', 0.6, '#cc2200', 0.9, '#ff4422', 1.3, '#ff8844', 2, '#ffcc44', 4, '#ffeeaa'
     ];
-    const permittedColorRamp = [
-        'interpolate', ['linear'],
-        ['coalesce', ['get', 'avg_rh_mw'], 0],
-        0, '#003318', 0.3, '#006633', 0.6, '#00cc66', 0.9, '#00ff88', 1.3, '#66ffaa', 2, '#aaffcc', 4, '#ccffdd'
-    ];
 
     map.addLayer({
-        id: 'flares-permitted', type: 'circle', source: 'flares',
-        filter: ['all', ['!=', ['get', 'near_excluded_facility'], true], ['<=', ['get', 'dark_pct'], 50]],
-        paint: { 'circle-radius': flareRadius, 'circle-color': 'transparent', 'circle-stroke-width': 1.5, 'circle-stroke-color': permittedColorRamp }
-    });
-    map.addLayer({
-        id: 'flares-dark', type: 'circle', source: 'flares',
-        filter: ['all', ['!=', ['get', 'near_excluded_facility'], true], ['>', ['get', 'dark_pct'], 50]],
-        paint: { 'circle-radius': flareRadius, 'circle-color': 'transparent', 'circle-stroke-width': 1.5, 'circle-stroke-color': darkColorRamp }
+        id: 'flares-layer', type: 'circle', source: 'flares',
+        filter: ['!=', ['get', 'near_excluded_facility'], true],
+        paint: { 'circle-radius': flareRadius, 'circle-color': 'transparent', 'circle-stroke-width': 1.5, 'circle-stroke-color': flareColorRamp }
     });
 }
 
@@ -157,14 +153,9 @@ async function updateStats() {
 }
 
 const LAYER_MAP = {
-    flares: ['flares-dark', 'flares-permitted'],
+    flares: ['flares-layer'],
     permits: ['permits-layer'],
     plumes: ['plumes-layer']
-};
-
-const LEGEND_MAP = {
-    permits: ['legend-permits'],
-    plumes: ['legend-plumes']
 };
 
 function setLayerVisibility(layer, visible) {
@@ -173,10 +164,6 @@ function setLayerVisibility(layer, visible) {
     for (const id of LAYER_MAP[layer]) {
         map.setLayoutProperty(id, 'visibility', vis);
     }
-    for (const id of (LEGEND_MAP[layer] || [])) {
-        document.getElementById(id).style.display = visible ? '' : 'none';
-    }
-
     if (visible) {
         if (layer === 'permits') loadPermits();
         if (layer === 'plumes') loadPlumes();
@@ -184,7 +171,7 @@ function setLayerVisibility(layer, visible) {
 }
 
 const ALL_CLICK_LAYERS = [
-    'flares-dark', 'flares-permitted',
+    'flares-layer',
     'permits-layer',
     'plumes-layer'
 ];
@@ -263,10 +250,8 @@ function bindUI() {
         map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
     }
 
-    map.on('mousemove', 'flares-dark', e => showTooltip(e));
-    map.on('mousemove', 'flares-permitted', e => showTooltip(e));
-    map.on('mouseleave', 'flares-dark', () => popup.remove());
-    map.on('mouseleave', 'flares-permitted', () => popup.remove());
+    map.on('mousemove', 'flares-layer', e => showTooltip(e));
+    map.on('mouseleave', 'flares-layer', () => popup.remove());
 }
 
 function showTooltip(e) {
@@ -334,7 +319,7 @@ async function showFlareDetail(feature) {
     document.getElementById('intensity-chart').innerHTML = '';
     document.getElementById('detail-body').innerHTML = `
         <div class="stats-grid">
-            <div class="stat"><div class="stat-big">${Number(p.avg_rh_mw).toFixed(1)}</div><div class="stat-unit">avg MW</div></div>
+            <div class="stat"><div class="stat-big">${Number(p.total_rh_mw).toLocaleString()}</div><div class="stat-unit">total MW</div></div>
             <div class="stat"><div class="stat-big">${Number(p.dark_days).toLocaleString()}/${Number(p.total_days).toLocaleString()}</div><div class="stat-unit">dark/total days</div></div>
         </div>
         <div class="detail-row">
@@ -394,9 +379,9 @@ function showPlumeDetail(feature) {
     const url = plumeUrl(p.source, p.plume_id);
     const titleEl = document.getElementById('detail-title');
     if (url) {
-        titleEl.innerHTML = `<a href="${url}" target="_blank" rel="noopener" style="color: inherit; text-decoration: underline;">Plume ${p.plume_id}</a>`;
+        titleEl.innerHTML = `<a href="${url}" target="_blank" rel="noopener" style="color: inherit; text-decoration: none;">${p.plume_id}</a>`;
     } else {
-        titleEl.textContent = `Plume ${p.plume_id}`;
+        titleEl.textContent = p.plume_id;
     }
     document.getElementById('detail-coords').textContent = `${Number(p.latitude).toFixed(4)}, ${Number(p.longitude).toFixed(4)}`;
     document.getElementById('detail-body').innerHTML = `
@@ -419,7 +404,7 @@ function renderSparkline(detections) {
     if (!detections?.length) { container.innerHTML = ''; return; }
 
     const margin = { top: 6, right: 6, bottom: 14, left: 6 };
-    const width = 268, height = 64;
+    const width = 400, height = 64;
     const innerW = width - margin.left - margin.right;
     const innerH = height - margin.top - margin.bottom;
 
@@ -432,7 +417,7 @@ function renderSparkline(detections) {
     const vals = detections.map(d => d.rh_mw).filter(v => v > 0);
     const lo = 0.1, hi = Math.max(10, ...vals);
 
-    let svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">`;
+    let svg = `<svg viewBox="0 0 ${width} ${height}">`;
     svg += `<line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
 
     // Year gridlines

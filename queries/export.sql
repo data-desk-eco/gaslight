@@ -15,7 +15,7 @@ COPY (
         round(d.total_rh_mw, 1) AS total_rh_mw,
         round(d.avg_rh_mw, 2) AS avg_rh_mw
     FROM flaring.sites fs
-    LEFT JOIN flaring.site_operators so USING (flare_id)
+    JOIN flaring.site_operators so USING (flare_id)
     LEFT JOIN (
         SELECT DISTINCT ON (filing_no) filing_no, name
         FROM flaring.permit_locations ORDER BY filing_no
