@@ -212,6 +212,56 @@ JOIN raw.wells w ON w.lease_district = plm.lease_district
 WHERE w.latitude != 0 AND w.longitude != 0;
 
 -- ============================================================
+-- Lease locations (centroids from well surface coordinates)
+-- ============================================================
+
+-- Lease footprints from EBCDIC well surface coordinates
+-- Convex hull of wells for 3+ well leases, buffered point for 1-2 wells
+-- Buffer of ~500m (0.005°) around hull to account for wells-to-flare distance
+SET VARIABLE lease_buffer = 0.005;
+
+CREATE OR REPLACE TABLE lease_locations AS
+WITH well_points AS (
+    SELECT oil_gas_code, lease_district, lease_number,
+        ST_Point(longitude, latitude) AS geom
+    FROM raw.wells
+    WHERE latitude != 0 AND longitude != 0
+),
+agg AS (
+    SELECT oil_gas_code, lease_district, lease_number,
+        COUNT(*) AS well_count,
+        ST_Collect(LIST(geom)) AS collected
+    FROM well_points
+    GROUP BY oil_gas_code, lease_district, lease_number
+)
+SELECT oil_gas_code, lease_district, lease_number, well_count,
+    ST_Buffer(
+        CASE WHEN well_count >= 3 THEN ST_ConvexHull(collected)
+             ELSE collected
+        END,
+        getvariable('lease_buffer')
+    ) AS geom
+FROM agg;
+
+CREATE INDEX IF NOT EXISTS idx_lease_locations_geom ON lease_locations USING RTREE (geom);
+
+-- VNF site ↔ lease spatial matches: flare site within buffered lease footprint
+CREATE OR REPLACE TABLE site_lease_matches AS
+SELECT
+    fs.flare_id,
+    ll.lease_district,
+    ll.lease_number,
+    ll.oil_gas_code,
+    ll.well_count
+FROM flare_sites fs
+JOIN lease_locations ll
+    ON ll.geom IS NOT NULL
+    AND fs.lon BETWEEN ST_XMin(ll.geom) AND ST_XMax(ll.geom)
+    AND fs.lat BETWEEN ST_YMin(ll.geom) AND ST_YMax(ll.geom)
+    AND ST_Contains(ll.geom, fs.geom)
+WHERE NOT fs.near_excluded_facility;
+
+-- ============================================================
 -- Spatial matching: plumes ↔ wells and VNF sites
 -- ============================================================
 

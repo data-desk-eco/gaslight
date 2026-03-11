@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download RRC EBCDIC files from MFT server."""
+"""Download RRC data files from MFT server."""
 import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -12,28 +12,24 @@ DATASETS = {
 }
 
 
-def download(out_dir: Path, filename: str):
-    link_id = DATASETS[filename]
-    out_path = out_dir / filename
-    if out_path.exists():
-        print(f"{filename} already exists, skipping")
-        return
+if __name__ == "__main__":
+    out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data")
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 1200})
-        page.goto(f"https://mft.rrc.texas.gov/link/{link_id}", wait_until="networkidle")
-        # Click the filename link directly to trigger download
-        timeout = 1_800_000 if "PDQ" in filename else 300_000  # 30min for PDQ (3.4GB)
-        with page.expect_download(timeout=timeout) as dl:
-            page.get_by_text(filename, exact=True).click()
-        dl.value.save_as(str(out_path))
+
+        for filename, link_id in DATASETS.items():
+            out_path = out_dir / filename
+            if out_path.exists():
+                print(f"{filename} already exists, skipping")
+                continue
+            page.goto(f"https://mft.rrc.texas.gov/link/{link_id}", wait_until="networkidle")
+            timeout = 1_800_000 if "PDQ" in filename else 300_000
+            with page.expect_download(timeout=timeout) as dl:
+                page.get_by_text(filename, exact=True).click()
+            dl.value.save_as(str(out_path))
+            print(f"Downloaded {filename}")
+
         browser.close()
-        print(f"Downloaded {filename} -> {out_path}")
-
-
-if __name__ == "__main__":
-    out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for name in DATASETS:
-        download(out_dir, name)

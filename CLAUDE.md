@@ -1,37 +1,38 @@
 # tx-swr32
 
-Dark flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite flare detections to SWR 32 permitted flare locations, then checks permit dates to identify unpermitted ("dark") flaring.
+Dark flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite flare detections to SWR 32 permitted flare locations and oil/gas lease footprints, then cross-references permit dates and self-reported flaring volumes to identify unpermitted ("dark") flaring.
 
 ## Layout
 
-- `scripts/scrape_permits.py` — SWR 32 permit metadata scraper (paginates RRC web app)
-- `scripts/scrape_flare_locations.py` — scrapes GPS coordinates from permit detail pages
-- `scripts/download_rrc.py` — downloads wellbore, P-4, and P-5 EBCDIC files from RRC MFT (Playwright)
-- `scripts/parse_rrc.py` — parses EBCDIC to `wells.csv` + `operators.csv` (three-pass streaming with P-4 operator lookup)
-- `scripts/fetch_vnf.py` — fetches VNF profiles from EOG (needs `.env` with EOG credentials)
-- `scripts/fetch_plumes.py` — fetches Carbon Mapper + IMEO methane plume data for Permian Basin
-- `queries/schema.sql` — DuckDB table definitions (`raw.*` schema)
-- `queries/load.sql` — loads all CSVs into `raw.*` tables
-- `queries/transform.sql` — builds entity tables: flare_sites, site_permit_matches, site_permit_coverage, site_operators, plume_well_matches, plume_site_matches
-- `queries/views.sql` — analytical tables (dark_flares, plume_attributed) and summary views
+- `scripts/scrape_permits.py` — SWR 32 permit metadata scraper
+- `scripts/scrape_permit_details.py` — downloads permit detail HTML pages
+- `scripts/parse_permit_details.py` — parses HTML to CSVs (permit_details, permit_properties, flare_locations)
+- `scripts/download_rrc.py` — downloads EBCDIC files + well shapefiles from RRC MFT (Playwright)
+- `scripts/parse_rrc.py` — parses EBCDIC to `wells.csv` + `operators.csv` (Permian districts 6E/7B/7C/08/8A)
+- `scripts/fetch_vnf.py` — fetches VNF profiles from EOG
+- `scripts/fetch_plumes.py` — fetches Carbon Mapper + IMEO methane plume data
+- `queries/schema.sql` → `load.sql` → `transform.sql` → `views.sql` — layered SQL pipeline
+
+## Methodology
+
+1. **Dark flaring**: VNF flare sites matched to nearest SWR 32 permit location within 1km. For each detection-day, if any nearby permit covers the date, it's "permitted"; otherwise "dark".
+2. **Lease matching**: dual-path — (a) permit-based via `permit_lease_map` and (b) spatial via `lease_locations` (convex hull of wells per lease, buffered ~500m). VNF sites within a lease footprint get allocated to that lease.
+3. **Reported flaring**: PDQ gas disposition data (code 04 = vented/flared) cross-referenced with permit coverage to estimate unpermitted volumes.
+4. **Operator attribution**: nearest permit filing operator, with `sole`/`majority`/`contested` confidence levels.
+5. **Exclusions**: EPA GHGRP non-upstream facilities within 1.5km; Gas Plant permits filtered out.
 
 ## Key details
 
-- **Methodology**: each VNF flare site is matched to the nearest SWR 32 permit location within 1km. Operator attributed from the permit filing. For each detection-day, if any nearby permit covers the date, it's "permitted"; otherwise "dark". Sites near multiple operators' permits are flagged as "contested" and excluded from operator rankings.
-- **Attribution confidence**: `sole` (only one operator nearby), `majority` (attributed operator has >50% of nearby permits), `contested` (multiple operators, none dominant). Operator chart filters to sole+majority.
-- **VNF load**: uses `all_varchar=true` instead of `auto_detect` on the 1,700 profile CSVs — much faster.
-- **Exclusions**: non-upstream facilities (EPA GHGRP gas plants, compressor stations, refineries) within 1.5km flagged on `flare_sites.near_excluded_facility`. Gas Plant permits excluded in `flare_locations` (transform layer).
-- **Wells/operators**: loaded into `raw.*` for plume→well attribution, not used in dark flaring analysis.
-- **Database layout**: `raw.*` schema holds CSV-loaded data; `main.*` has entity/relationship tables and analytical views. Iterate on transform/views without reloading raw data.
-- **EBCDIC layout**: wellbore file (dbf900) has 247-byte records. Type 01 = root, type 02 = completion, type 13 = location, type 21 = wellid. P-4 Schedule (p4f606) has current operators.
-- **Methane plumes**: Carbon Mapper (Tanager-1) + IMEO/MARS (multi-satellite). Fetched via API and filtered to Permian bbox. Matched to nearest well within 1km, cross-referenced with VNF ±1 day to classify as unlit/flaring/wellpad/unmatched.
-- **IMEO source**: `data/imeo_plumes.geojson` — manual download from methanedata.unep.org (no API available, 403s automated access).
+- **EBCDIC districts**: numeric codes mapped to alphanumeric (08→7B, 09→7C, 10→08, 11→8A)
+- **Database layout**: `raw.*` holds loaded data; `main.*` has entity tables and views. Re-run transform+views without reloading raw data.
+- **Lease footprints**: convex hull of well surface locations from EBCDIC type 13 records, with 0.005° (~500m) buffer. `ST_Contains` for matching.
+- **VNF load**: `all_varchar=true` on profile CSVs for speed.
+- **IMEO source**: `data/imeo_plumes.geojson` — manual download from methanedata.unep.org (no API).
 
 ## Commands
 
-- `uv` manages Python deps
-- `make db` — full pipeline (download, parse, load, analyse)
-- `make plumes` — fetch latest CM + IMEO plume data
-- `make clean` — removes derived data (keeps raw downloads)
-- `duckdb data/dark_flaring.duckdb` — query results interactively
-
+- `make db` — full pipeline (schema → load → transform → views)
+- `make refresh` — rebuild DB from scratch
+- `make plumes` — fetch latest plume data
+- `make clean` — removes derived data
+- `duckdb data/dark_flaring.duckdb` — query interactively

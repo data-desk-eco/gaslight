@@ -5,7 +5,12 @@ import gzip
 import sys
 from pathlib import Path
 
-PERMIAN_DISTRICTS = {"07", "08"}  # 07 covers 7C, 08 covers 8A in permits
+PERMIAN_DISTRICTS = {"07", "08", "09", "10", "11"}
+
+# EBCDIC numeric district → RRC alphanumeric district
+DISTRICT_MAP = {
+    "07": "6E", "08": "7B", "09": "7C", "10": "08", "11": "8A",
+}
 WELLBORE_RECLEN = 247
 P4_RECLEN = 92
 P5_RECLEN = 350
@@ -173,7 +178,8 @@ def parse_wellbore(gz_path: Path, out_dir: Path, p4_operators: dict):
                         wb_hits += 1
 
                 loc = locations.get(current_api)
-                w.writerow([current_api, og, district, lease, ebcdic(rec[10:16]),
+                mapped_district = DISTRICT_MAP.get(district, district)
+                w.writerow([current_api, og, mapped_district, lease, ebcdic(rec[10:16]),
                             op, loc[0] if loc else "", loc[1] if loc else ""])
 
     print(f"Wrote {len(seen)} Permian wells to {out_path}")

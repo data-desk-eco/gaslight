@@ -39,25 +39,67 @@ SELECT * EXCLUDE (rn) FROM matched WHERE rn = 1;
 -- Lease-level VNF allocation + reported flaring integration
 -- ============================================================
 
+-- Site-to-lease mapping: dual path (permit + spatial), deduplicated
+CREATE OR REPLACE TABLE site_lease_map AS
+WITH permit_path AS (
+    SELECT DISTINCT
+        so.flare_id,
+        plm.lease_district, plm.lease_number, plm.lease_name,
+        'permit' AS match_source
+    FROM site_operators so
+    JOIN permit_lease_map plm ON plm.filing_no = so.nearest_filing_no
+),
+spatial_path AS (
+    SELECT DISTINCT
+        slm.flare_id,
+        slm.lease_district, slm.lease_number,
+        COALESCE(pl.lease_name, rf.lease_name) AS lease_name,
+        'spatial' AS match_source
+    FROM site_lease_matches slm
+    LEFT JOIN raw.pdq_leases pl
+        ON pl.district_name = slm.lease_district
+        AND LPAD(pl.lease_no, 6, '0') = LPAD(slm.lease_number, 6, '0')
+    LEFT JOIN (
+        SELECT DISTINCT district, lease_no, lease_name
+        FROM reported_flaring
+    ) rf ON rf.district = slm.lease_district
+        AND LPAD(rf.lease_no, 6, '0') = LPAD(slm.lease_number, 6, '0')
+    WHERE (slm.flare_id, slm.lease_district, slm.lease_number) NOT IN (
+        SELECT flare_id, lease_district, lease_number FROM permit_path
+    )
+)
+SELECT * FROM permit_path
+UNION ALL
+SELECT * FROM spatial_path;
+
+-- VNF detection-days allocated to leases via site_lease_map
 CREATE OR REPLACE TABLE lease_vnf_allocation AS
 WITH detection_leases AS (
     SELECT
-        df.flare_id, df.date, df.rh_mw, df.is_dark, df.operator_name,
-        so.nearest_filing_no AS filing_no,
-        plm.lease_district, plm.lease_number, plm.lease_name,
-        COALESCE(NULLIF(plm.requested_release_rate_mcf_day, '')::DOUBLE, 1) AS rate
-    FROM dark_flares df
-    JOIN site_operators so USING (flare_id)
-    JOIN permit_lease_map plm ON plm.filing_no = so.nearest_filing_no
+        v.flare_id, v.date, v.rh_mw,
+        COALESCE(df.is_dark, TRUE) AS is_dark,
+        COALESCE(df.operator_name, so.operator_name) AS operator_name,
+        slm.lease_district, slm.lease_number, slm.lease_name,
+        slm.match_source
+    FROM raw.vnf v
+    JOIN flare_sites fs USING (flare_id)
+    JOIN site_lease_map slm ON slm.flare_id = v.flare_id
+    LEFT JOIN dark_flares df ON df.flare_id = v.flare_id AND df.date = v.date
+    LEFT JOIN site_operators so ON so.flare_id = v.flare_id
+    WHERE v.detected
+      AND NOT fs.near_excluded_facility
+      AND v.date >= (SELECT MIN(TRY_STRPTIME(submittal_dt, '%m/%d/%Y'))::DATE FROM raw.permits)
 ),
 with_weights AS (
-    SELECT *, rate / SUM(rate) OVER (PARTITION BY flare_id, date) AS weight
+    SELECT *,
+        1.0 / COUNT(*) OVER (PARTITION BY flare_id, date) AS weight
     FROM detection_leases
 )
 SELECT
     flare_id, date, is_dark, operator_name,
     lease_district, lease_number, lease_name,
-    rh_mw * weight AS allocated_rh_mw, weight
+    rh_mw * weight AS allocated_rh_mw, weight,
+    match_source
 FROM with_weights;
 
 CREATE OR REPLACE TABLE lease_flaring AS
