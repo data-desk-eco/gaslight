@@ -39,6 +39,8 @@ data/permit_details.csv data/permit_properties.csv data/flare_locations.csv data
 data/plumes_cm.csv data/plumes_imeo.csv:
 	uv run scripts/fetch_plumes.py
 
+data/survALLp.shp: data/.rrc_downloaded
+
 data/.rrc_downloaded:
 	uv run scripts/download_rrc.py data
 	@touch $@
@@ -71,7 +73,7 @@ refresh:
 
 db: data/dark_flaring.duckdb
 
-data/dark_flaring.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf.parquet data/flare_locations.csv data/permit_details.csv data/permit_properties.csv data/excluded_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/gas_disposition.parquet data/pdq/.done queries/*.sql
+data/dark_flaring.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf.parquet data/flare_locations.csv data/permit_details.csv data/permit_properties.csv data/excluded_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/gas_disposition.parquet data/pdq/.done data/survALLp.shp queries/*.sql
 	@rm -f $@
 	duckdb $@ < queries/schema.sql
 	duckdb $@ < queries/load.sql

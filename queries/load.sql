@@ -99,8 +99,23 @@ SELECT
 FROM read_csv('data/plumes_imeo.csv', header=true, auto_detect=true)
 WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
 
+-- OTLS survey polygons (filtered to Permian bbox)
+INSERT INTO raw.surveys
+SELECT
+    ABSTRACT_N,
+    ABSTRACT_L,
+    LEVEL1_SUR,
+    LEVEL2_BLO,
+    LEVEL3_SUR,
+    LEFT(ABSTRACT_N, 3),
+    geom
+FROM ST_Read('data/survALLp.shp')
+WHERE ST_XMin(geom) >= -104.5 AND ST_XMax(geom) <= -100.0
+  AND ST_YMin(geom) >= 30.0 AND ST_YMax(geom) <= 33.5;
+
 -- Spatial indexes
 CREATE INDEX IF NOT EXISTS idx_raw_wells_geom ON raw.wells USING RTREE (geom);
 CREATE INDEX IF NOT EXISTS idx_raw_vnf_geom ON raw.vnf USING RTREE (geom);
 CREATE INDEX IF NOT EXISTS idx_raw_flare_loc_geom ON raw.flare_locations USING RTREE (geom);
 CREATE INDEX IF NOT EXISTS idx_raw_plumes_geom ON raw.plumes USING RTREE (geom);
+CREATE INDEX IF NOT EXISTS idx_raw_surveys_geom ON raw.surveys USING RTREE (geom);

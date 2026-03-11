@@ -1,15 +1,36 @@
 #!/usr/bin/env python3
-"""Download RRC data files from MFT server."""
+"""Download RRC data files from MFT server and OTLS survey polygons."""
 import sys
+import urllib.request
+import zipfile
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-DATASETS = {
+# RRC MFT datasets (require Playwright for JSF download portal)
+MFT_DATASETS = {
     "dbf900.ebc.gz": "b070ce28-5c58-4fe2-9eb7-8b70befb7af9",  # Wellbore
     "p4f606.ebc.gz": "19f9b9c7-2b82-4d7c-8dbd-77145a86d3de",  # P-4 Schedule
     "orf850.ebc.gz": "04652169-eed6-4396-9019-2e270e790f6c",  # P-5 Org
     "PDQ_DSV.zip": "1f5ddb8d-329a-4459-b7f8-177b4f5ee60d",    # Production Data Query
 }
+
+# OTLS survey polygons (direct download from ArcGIS Online)
+OTLS_URL = "https://www.arcgis.com/sharing/rest/content/items/9812bbcbdae64d51be9ffef36a966101/data"
+
+
+def download_otls(out_dir: Path):
+    """Download statewide OTLS survey polygons from ArcGIS Online."""
+    shp_path = out_dir / "survALLp.shp"
+    if shp_path.exists():
+        print("OTLS shapefile already exists, skipping")
+        return
+    zip_path = out_dir / "survALLp.zip"
+    print("Downloading OTLS survey polygons (~57 MB)...")
+    urllib.request.urlretrieve(OTLS_URL, zip_path)
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(out_dir)
+    zip_path.unlink()
+    print(f"Extracted OTLS shapefile to {out_dir}")
 
 
 if __name__ == "__main__":
@@ -20,7 +41,7 @@ if __name__ == "__main__":
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 1200})
 
-        for filename, link_id in DATASETS.items():
+        for filename, link_id in MFT_DATASETS.items():
             out_path = out_dir / filename
             if out_path.exists():
                 print(f"{filename} already exists, skipping")
@@ -33,3 +54,5 @@ if __name__ == "__main__":
             print(f"Downloaded {filename}")
 
         browser.close()
+
+    download_otls(out_dir)

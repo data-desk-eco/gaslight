@@ -151,6 +151,17 @@ CREATE TABLE IF NOT EXISTS raw.pdq_leases (
     cycle_year_month_max VARCHAR
 );
 
+-- OTLS: Original Texas Land Survey polygons (abstract/section/block boundaries)
+CREATE TABLE IF NOT EXISTS raw.surveys (
+    abstract_n   VARCHAR,
+    abstract_l   VARCHAR,
+    survey_name  VARCHAR,
+    block        VARCHAR,
+    section      VARCHAR,
+    county_fips  VARCHAR,
+    geom         GEOMETRY
+);
+
 CREATE TABLE IF NOT EXISTS raw.plumes (
     plume_id        VARCHAR,
     source          VARCHAR,

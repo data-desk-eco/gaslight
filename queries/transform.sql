@@ -66,7 +66,7 @@ CREATE INDEX IF NOT EXISTS idx_flare_locations_geom ON flare_locations USING RTR
 -- Spatial matching: flare sites ↔ permit locations
 -- ============================================================
 
--- All matches within 1.5km (not just nearest)
+-- All matches within 1km (not just nearest)
 CREATE OR REPLACE TABLE site_permit_matches AS
 SELECT
     f.flare_id,
@@ -172,7 +172,6 @@ SELECT
     gd.oil_gas_code,
     dm.rrc_district AS district,
     gd.lease_no,
-    gd.cycle_year || '-' || LPAD(gd.cycle_month, 2, '0') || '-01' AS month_date,
     gd.cycle_year::INT AS year,
     gd.cycle_month::INT AS month,
     gd.operator_no,
@@ -187,40 +186,50 @@ FROM raw.gas_disposition gd
 LEFT JOIN pdq_district_map dm ON dm.pdq_district = gd.district_no;
 
 -- ============================================================
--- Lease locations (centroids from well surface coordinates)
+-- Lease locations from OTLS survey polygons
 -- ============================================================
 
--- Lease footprints from EBCDIC well surface coordinates
--- Convex hull of wells for 3+ well leases, buffered point for 1-2 wells
--- Buffer of ~500m (0.005°) around hull to account for wells-to-flare distance
-SET VARIABLE lease_buffer = 0.005;
+-- Well → OTLS survey spatial join: each well falls within a survey polygon
+CREATE OR REPLACE TABLE well_surveys AS
+SELECT DISTINCT
+    w.oil_gas_code, w.lease_district, w.lease_number, w.api,
+    s.abstract_n, s.abstract_l, s.survey_name, s.block, s.section
+FROM raw.wells w
+JOIN raw.surveys s
+    ON ST_Contains(s.geom, ST_Point(w.longitude, w.latitude))
+WHERE w.latitude != 0 AND w.longitude != 0;
 
+-- Lease boundaries: union of OTLS survey polygons containing each lease's wells
+-- Filtered to max 10km extent to exclude leases with mismatched wells
 CREATE OR REPLACE TABLE lease_locations AS
-WITH well_points AS (
-    SELECT oil_gas_code, lease_district, lease_number,
-        ST_Point(longitude, latitude) AS geom
-    FROM raw.wells
-    WHERE latitude != 0 AND longitude != 0
+WITH lease_surveys AS (
+    SELECT DISTINCT
+        ws.oil_gas_code, ws.lease_district, ws.lease_number,
+        ws.abstract_n, s.geom
+    FROM well_surveys ws
+    JOIN raw.surveys s ON s.abstract_n = ws.abstract_n
 ),
 agg AS (
     SELECT oil_gas_code, lease_district, lease_number,
-        COUNT(*) AS well_count,
-        ST_Collect(LIST(geom)) AS collected
-    FROM well_points
+        COUNT(DISTINCT abstract_n) AS survey_count,
+        ST_Union_Agg(geom) AS geom
+    FROM lease_surveys
     GROUP BY oil_gas_code, lease_district, lease_number
 )
-SELECT oil_gas_code, lease_district, lease_number, well_count,
-    ST_Buffer(
-        CASE WHEN well_count >= 3 THEN ST_ConvexHull(collected)
-             ELSE collected
-        END,
-        getvariable('lease_buffer')
-    ) AS geom
-FROM agg;
+SELECT agg.oil_gas_code, agg.lease_district, agg.lease_number,
+    agg.survey_count, wc.well_count, agg.geom
+FROM agg
+JOIN (
+    SELECT oil_gas_code, lease_district, lease_number, count(*) AS well_count
+    FROM raw.wells WHERE latitude != 0
+    GROUP BY 1, 2, 3
+) wc USING (oil_gas_code, lease_district, lease_number)
+WHERE greatest(ST_XMax(agg.geom) - ST_XMin(agg.geom),
+               ST_YMax(agg.geom) - ST_YMin(agg.geom)) * 111 < 10;
 
 CREATE INDEX IF NOT EXISTS idx_lease_locations_geom ON lease_locations USING RTREE (geom);
 
--- VNF site ↔ lease spatial matches: flare site within buffered lease footprint
+-- VNF site ↔ lease spatial matches: flare site within OTLS lease boundary
 CREATE OR REPLACE TABLE site_lease_matches AS
 SELECT
     fs.flare_id,

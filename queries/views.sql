@@ -40,7 +40,7 @@ SELECT * EXCLUDE (rn) FROM matched WHERE rn = 1;
 -- ============================================================
 
 -- VNF detection-days allocated to leases via spatial matching
--- (flare site within buffered convex hull of lease wells)
+-- (flare site within OTLS-based lease boundary)
 CREATE OR REPLACE TABLE lease_vnf_allocation AS
 WITH detection_leases AS (
     SELECT
@@ -173,14 +173,6 @@ WHERE is_dark AND confidence IN ('sole', 'majority')
 GROUP BY 1 ORDER BY total_rh_mw DESC
 LIMIT 15;
 
-CREATE OR REPLACE VIEW dark_quarterly AS
-SELECT date_trunc('quarter', date) AS quarter,
-    is_dark,
-    count(*) AS detection_days,
-    count(DISTINCT flare_id) AS sites,
-    round(sum(rh_mw), 0) AS total_rh_mw
-FROM dark_flares GROUP BY 1, 2 ORDER BY 1;
-
 CREATE OR REPLACE VIEW top_leases AS
 SELECT
     lease_district AS district, lease_number,
@@ -307,17 +299,3 @@ WHERE COALESCE(df.operator_name, 'Unknown') IN (SELECT operator FROM top5)
   AND df.confidence IN ('sole','majority')
 GROUP BY 1, 2
 ORDER BY 1, 2;
-
--- Reported flaring by operator (quarterly, Permian only)
-CREATE OR REPLACE VIEW operator_reported AS
-SELECT
-    operator_name AS operator,
-    (year::VARCHAR || '-' || LPAD(CASE
-        WHEN month <= 3 THEN '01' WHEN month <= 6 THEN '04'
-        WHEN month <= 9 THEN '07' ELSE '10' END, 2, '0') || '-01')::DATE AS quarter,
-    round(sum(total_flared_mcf) / 1e3, 0) AS reported_mmcf,
-    round(sum(total_gas_prod_mcf) / 1e3, 0) AS produced_mmcf,
-    count(DISTINCT lease_no || district) AS active_leases
-FROM reported_flaring
-WHERE district IN ('7B','7C','08','8A') AND year >= 2024
-GROUP BY 1, 2 ORDER BY 1, 2;
