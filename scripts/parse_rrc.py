@@ -60,6 +60,33 @@ def parse_p4(gz_path: Path) -> dict:
     return operators
 
 
+def _resolve_operator(api, og, district, lease, api_p4_keys, p4_operators, wb_operator_nos):
+    """Resolve current operator for a well completion.
+
+    Oil wells share district/lease numbering with P-4, so match directly.
+    Gas wells use different numbering in P-4, so require the type 21 bridge.
+    Falls back to the wellbore operator (drilling-era, may be stale).
+
+    Returns (operator_no, source) where source is 'p4', 'wb', or None.
+    """
+    if og == "O":
+        op = p4_operators.get(("O", int(district), int(lease)))
+        if op:
+            return op, "p4"
+    elif og == "G":
+        for p4_key in api_p4_keys.get(api, []):
+            op = p4_operators.get(p4_key)
+            if op:
+                return op, "p4"
+
+    # Wellbore operator (drilling-era, last resort)
+    op = wb_operator_nos.get(api, "")
+    if op:
+        return op, "wb"
+
+    return "", None
+
+
 def parse_wellbore(gz_path: Path, out_dir: Path, p4_operators: dict):
     """Parse wellbore EBCDIC -> wells.csv.
 
@@ -149,33 +176,15 @@ def parse_wellbore(gz_path: Path, out_dir: Path, p4_operators: dict):
                     continue
                 seen.add(key)
 
-                # Look up current operator from P-4
-                op = ""
-
-                # Try 1: type 21 wellid bridge (most accurate, handles gas districts)
-                p4_keys = api_p4_keys.get(current_api, [])
-                for p4_key in p4_keys:
-                    p4_op = p4_operators.get(p4_key)
-                    if p4_op:
-                        op = p4_op
-                        p4_hits += 1
-                        break
-
-                # Try 2: direct type 02 match (works for oil, some gas)
-                if not op:
-                    district_int = int(district)
-                    lease_int = int(lease) if lease.isdigit() else None
-                    if lease_int is not None:
-                        p4_op = p4_operators.get((og, district_int, lease_int))
-                        if p4_op:
-                            op = p4_op
-                            p4_hits += 1
-
-                # Try 3: wellbore operator (drilling-era, last resort)
-                if not op:
-                    op = wb_operator_nos.get(current_api, "")
-                    if op:
-                        wb_hits += 1
+                # Look up current operator: P-4 bridge → P-4 direct → wellbore fallback
+                op, source = _resolve_operator(
+                    current_api, og, district, lease,
+                    api_p4_keys, p4_operators, wb_operator_nos,
+                )
+                if source == "p4":
+                    p4_hits += 1
+                elif source == "wb":
+                    wb_hits += 1
 
                 loc = locations.get(current_api)
                 mapped_district = DISTRICT_MAP.get(district, district)

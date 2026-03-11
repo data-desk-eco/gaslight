@@ -63,9 +63,10 @@ map.on('load', async () => {
     addLayers();
     await refreshFlares();
     await loadPermits();
-    await updateStats();
     bindUI();
     updateMapCentre();
+    // Stats use queryRenderedFeatures — wait for first idle after data loads
+    map.once('idle', updateStats);
 });
 
 function addEmptySources() {
