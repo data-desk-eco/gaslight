@@ -17,8 +17,8 @@ function clusterHash(lat, lon) {
 
 function cacheKey(flareId) { return CACHE_PREFIX + flareId; }
 
-function saveCache(flareId, detections, clusters, processedDates) {
-    const data = JSON.stringify({ detections, clusters: clusters ?? null, processedDates: [...processedDates] });
+function saveCache(flareId, detections, clusters, processedDates, complete = false) {
+    const data = JSON.stringify({ detections, clusters: clusters ?? null, processedDates: [...processedDates], complete });
     const key = cacheKey(flareId);
     try {
         localStorage.setItem(key, data);
@@ -124,9 +124,9 @@ export function enhance(flare, map) {
     // Zoom to pixel square
     map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 80, maxZoom: 17 });
 
-    // Check cache — if complete (has clusters), use directly; otherwise seed and continue
+    // Check cache — if fully complete, use directly; otherwise seed and continue
     const cached = loadCache(p.flare_id);
-    if (cached?.clusters) {
+    if (cached?.complete && cached?.clusters) {
         // Backfill ids for old cache entries
         for (const c of cached.clusters) {
             if (!c.id) c.id = clusterHash(c.lat, c.lon);
@@ -137,8 +137,14 @@ export function enhance(flare, map) {
         return;
     }
 
-    // Seed with any partial cache — track all processed dates (not just those with detections)
+    // Seed with cached data (partial or old-format complete without flag)
     const cachedDetections = cached?.detections || [];
+    const cachedClusters = cached?.clusters || null;
+    if (cachedClusters) {
+        for (const c of cachedClusters) {
+            if (!c.id) c.id = clusterHash(c.lat, c.lon);
+        }
+    }
     const processedDates = new Set(cached?.processedDates || []);
 
     const end = p.last_detected;
@@ -146,7 +152,7 @@ export function enhance(flare, map) {
     const oneYearBefore = new Date(new Date(end).getTime() - 365 * 86400000).toISOString().slice(0, 10);
     const start = p.first_detected > oneYearBefore ? p.first_detected : oneYearBefore;
 
-    state = { enhancing: true, progress: { done: 0, total: null }, detections: [...cachedDetections], clusters: null, error: null };
+    state = { enhancing: true, progress: { done: 0, total: null }, detections: [...cachedDetections], clusters: cachedClusters, error: null };
     refreshS2Source(map);
     onUpdate?.(state);
 
@@ -190,7 +196,7 @@ export function enhance(flare, map) {
 
             case 'done':
                 state.enhancing = false;
-                saveCache(p.flare_id, state.detections, state.clusters, processedDates);
+                saveCache(p.flare_id, state.detections, state.clusters, processedDates, true);
                 refreshS2Source(map);
                 onUpdate?.(state);
                 worker?.terminate();
