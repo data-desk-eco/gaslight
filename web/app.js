@@ -933,22 +933,6 @@ function showS2ClusterDetail(cluster) {
         if (el) el.innerHTML = permitCoverageHtml(info);
     }).catch(() => {});
 
-    // Link to parent VNF flare
-    if (cluster.flare_id != null) {
-        const parent = flareFeatures.find(f => f.properties.flare_id === cluster.flare_id);
-        if (parent) {
-            const link = document.createElement('div');
-            link.className = 'detail-row';
-            link.innerHTML = `<a href="?flare=${cluster.flare_id}" class="vnf-link">← VNF Flare ${cluster.flare_id}</a>`;
-            link.querySelector('a').addEventListener('click', (e) => {
-                e.preventDefault();
-                parent.layer = { id: 'flares-layer' };
-                showFeatureDetail(parent);
-            });
-            document.getElementById('detail-body').appendChild(link);
-        }
-    }
-
     panel.classList.remove('hidden');
 }
 
