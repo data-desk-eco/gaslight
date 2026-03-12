@@ -1,5 +1,5 @@
-import * as db from './db.js?v=2';
-import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached } from './enhance.js';
+import * as db from './db.js?v=3';
+import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached } from './enhance.js?v=3';
 
 const COLORS = {
     flare: '#ffaa44',
@@ -617,7 +617,7 @@ async function showFlareDetail(feature) {
 
     let leaseHtml = '';
     try {
-        const leases = await db.queryFlareLeases(p.flare_id);
+        const leases = await db.queryLeases(p.flare_id);
         if (leases.length > 0) {
             const names = [...new Set(leases.map(l => l.lease_name).filter(Boolean))];
             if (names.length > 0) {

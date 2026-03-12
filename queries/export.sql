@@ -40,7 +40,7 @@ COPY (
         GROUP BY 1, 2
     ) lf ON LPAD(lf.lease_district, 2, '0') = LPAD(sl.lease_district, 2, '0')
         AND LPAD(lf.lease_number, 6, '0') = LPAD(sl.lease_number, 6, '0')
-) TO 'web/data/flare_leases.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+) TO 'web/data/leases.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 COPY (
     SELECT

@@ -19,7 +19,7 @@ async function _init() {
     await db.instantiate(mainModule);
     conn = await db.connect();
 
-    const files = ['flares', 'flare_leases', 'permits', 'plumes', 'detections', 'wells'];
+    const files = ['flares', 'leases', 'permits', 'plumes', 'detections', 'wells'];
     await Promise.all(files.map(async name => {
         const resp = await fetch(`data/${name}.parquet`);
         const buf = await resp.arrayBuffer();
@@ -78,11 +78,11 @@ export async function queryDetections(flareId) {
     return rows(result);
 }
 
-export async function queryFlareLeases(flareId) {
+export async function queryLeases(flareId) {
     const result = await query(`
         SELECT lease_district, lease_number, oil_gas_code, well_count,
             reported_flared_mcf, lease_operator, lease_name
-        FROM 'flare_leases.parquet'
+        FROM 'leases.parquet'
         WHERE flare_id = ${Number(flareId)}
     `);
     return rows(result);
