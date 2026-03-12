@@ -26,7 +26,7 @@ jobs:
       - name: Prepare dist
         run: |
           mkdir -p dist
-          cp web/index.html web/app.js web/db.js web/enhance.js web/style.css dist/
+          cp web/index.html web/app.js web/db.js web/drawer.js web/enhance.js web/style.css dist/
           cp -r web/vendor dist/vendor
           cp -r web/data dist/data
 
