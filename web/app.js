@@ -1,4 +1,4 @@
-import * as db from './db.js';
+import * as db from './db.js?v=2';
 import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached } from './enhance.js';
 
 const COLORS = {
