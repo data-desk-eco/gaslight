@@ -1,5 +1,5 @@
 import * as db from './db.js';
-import { enhance, cancelEnhance, setUpdateCallback } from './enhance.js';
+import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached } from './enhance.js';
 
 const COLORS = {
     dark: '#ff4422',
@@ -13,6 +13,7 @@ let layerState = { flares: true, permits: true, plumes: false, wells: false };
 let operatorFilter = '';
 let overlappingFeatures = [];
 let overlapIndex = 0;
+let flareFeatures = [];
 
 const map = new maplibregl.Map({
     container: 'map',
@@ -63,8 +64,10 @@ map.on('load', async () => {
     addLayers();
     await refreshFlares();
     await loadPermits();
+    loadCachedS2();
     bindUI();
     updateMapCentre();
+    handleDeepLink();
     // Stats use queryRenderedFeatures — wait for first idle after data loads
     map.once('idle', updateStats);
 });
@@ -251,6 +254,7 @@ function flarePixelData(flareGeoJson) {
 
 async function refreshFlares() {
     const data = await db.queryFlares({ operator: operatorFilter || undefined });
+    flareFeatures = data.features;
     map.getSource('flares').setData(data);
     const px = flarePixelData(data);
     map.getSource('flare-pixels').setData(px.squares);
@@ -273,6 +277,20 @@ async function loadWells() {
     if (!layerState.wells) return;
     const data = await db.queryWells({ operator: operatorFilter || undefined });
     map.getSource('wells').setData(data);
+}
+
+function loadCachedS2() {
+    const points = loadAllCached();
+    if (points.length === 0) return;
+    const fc = {
+        type: 'FeatureCollection',
+        features: points.map(d => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [d.lon, d.lat] },
+            properties: d,
+        })),
+    };
+    map.getSource('s2-detections').setData(fc);
 }
 
 function updateMapCentre() {
@@ -315,6 +333,7 @@ const ALL_CLICK_LAYERS = [
     'flares-layer',
     'flare-pixels-fill',
     'flare-pixels-layer',
+    's2-points',
     'permits-layer',
     'plumes-layer',
     'wells-layer'
@@ -370,7 +389,28 @@ function bindUI() {
         const activeLayers = ALL_CLICK_LAYERS.filter(l =>
             map.getLayer(l) && map.getLayoutProperty(l, 'visibility') !== 'none'
         );
-        const features = map.queryRenderedFeatures(bbox, { layers: activeLayers });
+        const raw = map.queryRenderedFeatures(bbox, { layers: activeLayers });
+
+        if (raw.length === 0) {
+            closeDetail();
+            return;
+        }
+
+        // Deduplicate: pixel squares share flare_id with point layer — keep point, drop pixel dupes
+        const PIXEL_LAYERS = new Set(['flare-pixels-fill', 'flare-pixels-layer']);
+        const seen = new Set();
+        const features = [];
+        // Prefer point features: process non-pixel layers first
+        const sorted = [...raw].sort((a, b) => (PIXEL_LAYERS.has(a.layer.id) ? 1 : 0) - (PIXEL_LAYERS.has(b.layer.id) ? 1 : 0));
+        for (const f of sorted) {
+            const isS2 = f.layer.id === 's2-points';
+            const key = f.properties.flare_id != null
+                ? `${isS2 ? 's2' : 'flare'}:${f.properties.flare_id}`
+                : `${f.layer.id}:${f.id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            features.push(f);
+        }
 
         if (features.length === 0) {
             closeDetail();
@@ -404,8 +444,47 @@ function bindUI() {
     map.on('moveend', updateStats);
 }
 
+function updateFlareUrl(flareId, mode) {
+    const url = new URL(window.location);
+    if (flareId != null) {
+        url.searchParams.set('flare', flareId);
+        if (mode) url.searchParams.set('mode', mode);
+        else url.searchParams.delete('mode');
+    } else {
+        url.searchParams.delete('flare');
+        url.searchParams.delete('mode');
+    }
+    history.replaceState(null, '', url);
+}
+
+function handleDeepLink() {
+    const params = new URLSearchParams(window.location.search);
+    const flareId = params.get('flare');
+    if (!flareId) return;
+
+    const feature = flareFeatures.find(f => String(f.properties.flare_id) === flareId);
+    if (!feature) return;
+
+    const [lon, lat] = feature.geometry.coordinates;
+    map.flyTo({ center: [lon, lat], zoom: 14 });
+
+    if (params.get('mode') === 's2') {
+        showEnhanceDetail(feature);
+    } else {
+        // Synthesize layer info so showFeatureDetail works
+        feature.layer = { id: 'flares-layer' };
+        showFeatureDetail(feature);
+    }
+}
+
+function removeS2Badge() {
+    document.getElementById('s2-badge')?.remove();
+}
+
 function closeDetail() {
     cancelEnhance(map);
+    removeS2Badge();
+    updateFlareUrl(null);
     document.getElementById('detail-panel').classList.add('hidden');
     overlappingFeatures = [];
     overlapIndex = 0;
@@ -413,15 +492,26 @@ function closeDetail() {
 
 function showFeatureDetail(feature) {
     cancelEnhance(map);
+    removeS2Badge();
     const layer = feature.layer.id;
     if (layer.startsWith('flare')) showFlareDetail(feature);
-    else if (layer.startsWith('permits-')) showPermitDetail(feature);
-    else if (layer.startsWith('plumes-')) showPlumeDetail(feature);
-    else if (layer.startsWith('wells-')) showWellDetail(feature);
+    else if (layer === 's2-points') {
+        // Find parent VNF flare and open enhance view
+        const fid = feature.properties.flare_id;
+        const parent = fid != null ? flareFeatures.find(f => f.properties.flare_id === Number(fid)) : null;
+        if (parent) showEnhanceDetail(parent);
+    } else {
+        updateFlareUrl(null);
+        if (layer.startsWith('permits-')) showPermitDetail(feature);
+        else if (layer.startsWith('plumes-')) showPlumeDetail(feature);
+        else if (layer.startsWith('wells-')) showWellDetail(feature);
+    }
 
-    // Update overlap nav
+    // Update overlap nav — only for overlapping permits
+    const permitFeatures = overlappingFeatures.filter(f => f.layer.id.startsWith('permits-'));
     const nav = document.getElementById('overlap-nav');
-    if (overlappingFeatures.length > 1) {
+    if (permitFeatures.length > 1) {
+        overlappingFeatures = permitFeatures;
         nav.classList.remove('hidden');
         document.getElementById('overlap-count').textContent = `${overlapIndex + 1} / ${overlappingFeatures.length}`;
     } else {
@@ -433,13 +523,89 @@ function field(label, value) {
     return `<div class="detail-field"><span class="detail-field-label">${label}</span><span class="detail-field-value">${value}</span></div>`;
 }
 
-async function showFlareDetail(feature) {
-    const p = feature.properties;
-    const panel = document.getElementById('detail-panel');
+function flareStatus(p) {
     const isDark = p.dark_pct > 50;
     const isExcluded = p.near_excluded_facility === true || p.near_excluded_facility === 'true';
     const status = isExcluded ? 'excluded' : (isDark ? 'dark' : 'permitted');
-    const statusLabel = isExcluded ? 'Excluded' : (isDark ? `${p.dark_pct}% dark` : `${100 - p.dark_pct}% permitted`);
+    const label = isExcluded ? 'Excluded' : (isDark ? `${p.dark_pct}% dark` : `${100 - p.dark_pct}% permitted`);
+    return { status, label };
+}
+
+function permitInfoFromVnf(p) {
+    return {
+        operator: p.operator_name,
+        confidence: p.confidence ? p.confidence.charAt(0).toUpperCase() + p.confidence.slice(1) : null,
+        permitName: [...new Set([p.site_name, p.permit_name].filter(Boolean))].join(', ') || null,
+        distanceKm: p.nearest_permit_km != null ? Number(p.nearest_permit_km) : null,
+        firstDetected: p.first_detected,
+        lastDetected: p.last_detected,
+    };
+}
+
+function permitInfoFromS2(detections, nearbyPermits) {
+    if (!detections.length) return null;
+
+    // Find the nearest permit to any detection
+    let bestPermit = null, bestDist = Infinity;
+    for (const d of detections) {
+        const np = nearestPermit(d.lat, d.lon, nearbyPermits);
+        if (np && np.distance_km < bestDist) {
+            bestDist = np.distance_km;
+            bestPermit = np;
+        }
+    }
+
+    const dates = detections.map(d => d.date).filter(Boolean).sort();
+    const firstDetected = dates[0] || null;
+    const lastDetected = dates[dates.length - 1] || null;
+
+    let covered = null;
+    if (bestPermit && bestDist <= 0.375) {
+        covered = firstDetected && bestPermit.earliest_effective <= firstDetected
+            && (!bestPermit.latest_expiration || bestPermit.latest_expiration >= lastDetected);
+    }
+
+    return {
+        operator: bestPermit?.operator_name || null,
+        permitName: bestPermit && bestDist <= 0.375 ? (bestPermit.name || 'Unnamed') : null,
+        distanceKm: bestPermit && bestDist <= 0.375 ? bestDist : null,
+        firstDetected,
+        lastDetected,
+        covered,
+        permitDates: bestPermit && bestDist <= 0.375
+            ? (bestPermit.earliest_effective || '?') + ' → ' + (bestPermit.latest_expiration || 'open')
+            : null,
+    };
+}
+
+function permitCoverageHtml(info) {
+    if (!info) return '';
+    const coverageLabel = info.covered === true
+        ? '<span class="permit-covered">covered</span>'
+        : info.covered === false
+            ? '<span class="permit-uncovered">uncovered</span>'
+            : null;
+    return `
+        <div class="detail-row">
+            ${field('Operator', info.operator || 'N/A')}
+            ${info.confidence != null ? field('Confidence', info.confidence) : ''}
+            ${field('Nearest permit', info.permitName || 'None')}
+            ${field('Distance', info.distanceKm != null ? info.distanceKm.toFixed(2) + ' km' : 'N/A')}
+            ${coverageLabel ? field('Coverage', coverageLabel) : ''}
+            ${info.permitDates ? field('Permit dates', info.permitDates) : ''}
+        </div>
+        <div class="detail-row">
+            ${field('First detected', formatDate(info.firstDetected))}
+            ${field('Last detected', formatDate(info.lastDetected))}
+        </div>
+    `;
+}
+
+async function showFlareDetail(feature) {
+    const p = feature.properties;
+    const panel = document.getElementById('detail-panel');
+    const { status, label: statusLabel } = flareStatus(p);
+    updateFlareUrl(p.flare_id);
 
     document.getElementById('detail-title').textContent = `Flare ${p.flare_id}`;
     document.getElementById('detail-coords').textContent = `${Number(p.lat).toFixed(4)}, ${Number(p.lon).toFixed(4)}`;
@@ -467,16 +633,7 @@ async function showFlareDetail(feature) {
             <div class="stat"><div class="stat-big">${num(p.total_rh_mw)}</div><div class="stat-unit">total MW</div></div>
             <div class="stat"><div class="stat-big">${num(p.dark_days)}/${num(p.total_days)}</div><div class="stat-unit">dark/total days</div></div>
         </div>
-        <div class="detail-row">
-            ${field('Operator', p.operator_name)}
-            ${field('Confidence', p.confidence ? p.confidence.charAt(0).toUpperCase() + p.confidence.slice(1) : 'N/A')}
-            ${field('Nearest permit', [...new Set([p.site_name, p.permit_name].filter(Boolean))].join(', ') || 'None')}
-            ${field('Distance', p.nearest_permit_km != null ? Number(p.nearest_permit_km).toFixed(2) + ' km' : 'N/A')}
-        </div>
-        <div class="detail-row">
-            ${field('First detected', formatDate(p.first_detected))}
-            ${field('Last detected', formatDate(p.last_detected))}
-        </div>
+        ${permitCoverageHtml(permitInfoFromVnf(p))}
         ${leaseHtml}
     `;
     panel.classList.remove('hidden');
@@ -575,43 +732,73 @@ function showWellDetail(feature) {
     document.getElementById('detail-panel').classList.remove('hidden');
 }
 
+function distKm(lat1, lon1, lat2, lon2) {
+    const cosLat = Math.cos(lat1 * Math.PI / 180);
+    return 111.32 * Math.sqrt((lat2 - lat1) ** 2 * (110.54 / 111.32) ** 2 + ((lon2 - lon1) * cosLat) ** 2);
+}
+
+function nearestPermit(lat, lon, permits) {
+    let best = null, bestDist = Infinity;
+    for (const p of permits) {
+        const d = distKm(lat, lon, p.latitude, p.longitude);
+        if (d < bestDist) { bestDist = d; best = p; }
+    }
+    return best ? { ...best, distance_km: bestDist } : null;
+}
+
 function showEnhanceDetail(feature) {
     const p = feature.properties;
     const panel = document.getElementById('detail-panel');
+    const { status, label: statusLabel } = flareStatus(p);
+    updateFlareUrl(p.flare_id, 's2');
 
     document.getElementById('detail-title').textContent = `Sentinel-2 · Flare ${p.flare_id}`;
     document.getElementById('detail-coords').textContent = `${Number(p.lat).toFixed(4)}, ${Number(p.lon).toFixed(4)}`;
     const badge = document.getElementById('detail-badge');
-    badge.className = 'status-badge s2';
-    badge.textContent = 'Enhancing';
+    badge.className = `status-badge ${status}`;
+    badge.textContent = statusLabel;
     badge.classList.remove('hidden');
 
     // Hide overlap nav for enhance mode
     document.getElementById('overlap-nav').classList.add('hidden');
 
+    // Secondary badge for S2 progress
+    const s2Badge = document.createElement('span');
+    s2Badge.className = 'status-badge s2';
+    s2Badge.id = 's2-badge';
+    s2Badge.textContent = 'Enhancing';
+    badge.parentElement.appendChild(s2Badge);
+
     document.getElementById('intensity-chart').innerHTML = '';
     document.getElementById('detail-body').innerHTML = `
         <div class="stats-grid" id="s2-stats">
-            <div class="stat"><div class="stat-big" id="s2-stat-detections">0</div><div class="stat-unit">detections</div></div>
-            <div class="stat"><div class="stat-big" id="s2-stat-images">0 / ?</div><div class="stat-unit">images</div></div>
             <div class="stat"><div class="stat-big" id="s2-stat-max-b12">--</div><div class="stat-unit">peak B12</div></div>
             <div class="stat"><div class="stat-big" id="s2-stat-mean-b12">--</div><div class="stat-unit">mean B12</div></div>
         </div>
+        <div id="s2-permit-section"></div>
     `;
     panel.classList.remove('hidden');
+
+    // Preload nearby permits for live matching
+    let nearbyPermits = [];
+    db.queryNearbyPermits(Number(p.lat), Number(p.lon)).then(permits => {
+        nearbyPermits = permits;
+        // Re-run permit display in case detections arrived before permits loaded (e.g. cache)
+        const s = getState();
+        if (s.detections.length > 0) updatePermitInfo(s.detections);
+    }).catch(() => {});
+
+    function updatePermitInfo(dets) {
+        const el = document.getElementById('s2-permit-section');
+        if (!el) return;
+        const info = permitInfoFromS2(dets, nearbyPermits);
+        el.innerHTML = permitCoverageHtml(info);
+    }
 
     // Wire up live updates before starting (cache path fires synchronously)
     setUpdateCallback((s) => {
         // Update stats
         const dets = s.detections;
-        document.getElementById('s2-stat-detections').textContent = dets.length;
-
-        if (s.progress) {
-            const total = s.progress.total != null ? s.progress.total : '?';
-            document.getElementById('s2-stat-images').textContent = s.enhancing ? `${s.progress.done} / ${total}` : total;
-        } else if (!s.enhancing && dets.length > 0) {
-            document.getElementById('s2-stat-images').textContent = 'cached';
-        }
 
         if (dets.length > 0) {
             const maxB12 = Math.max(...dets.map(d => d.max_b12));
@@ -623,14 +810,21 @@ function showEnhanceDetail(feature) {
         // Live-update chart
         renderS2Chart(dets);
 
-        // Update badge
+        // Live-update permit coverage
+        updatePermitInfo(dets);
+
+        // Update S2 progress badge
+        const s2b = document.getElementById('s2-badge');
+        if (!s2b) return;
         if (s.enhancing) {
-            badge.textContent = s.progress?.total ? `${s.progress.done} / ${s.progress.total}` : 'Searching...';
+            s2b.textContent = s.progress?.total
+                ? `${s.progress.done} / ${s.progress.total}${s.progress.skipped ? ` (${s.progress.skipped} cached)` : ''}`
+                : 'Searching...';
         } else if (s.error) {
-            badge.className = 'status-badge dark';
-            badge.textContent = 'Failed';
+            s2b.className = 'status-badge dark';
+            s2b.textContent = 'Failed';
         } else if (s.clusters) {
-            badge.textContent = `${s.clusters.length} source${s.clusters.length !== 1 ? 's' : ''}`;
+            s2b.textContent = `${s.clusters.length} source${s.clusters.length !== 1 ? 's' : ''}`;
 
             // Show cluster results
             if (!document.getElementById('s2-clusters')) {
@@ -638,12 +832,17 @@ function showEnhanceDetail(feature) {
                 const summary = document.createElement('div');
                 summary.id = 's2-clusters';
                 summary.className = 'enhance-results';
-                summary.innerHTML = s.clusters.map((c, i) =>
-                    `<div class="enhance-cluster" data-idx="${i}">
+                summary.innerHTML = s.clusters.map((c, i) => {
+                    const np = nearestPermit(c.lat, c.lon, nearbyPermits);
+                    const permitLabel = np && np.distance_km <= 0.375
+                        ? `<span class="permit-covered">${np.name || 'Unnamed'}</span> · ${np.distance_km.toFixed(2)} km`
+                        : '<span class="permit-uncovered">no permit</span>';
+                    return `<div class="enhance-cluster" data-idx="${i}">
                         <span class="cluster-dot"></span>
                         B12 ${c.max_b12.toFixed(2)} · ${c.detection_count} det · ${c.first_date} – ${c.last_date}
-                    </div>`
-                ).join('');
+                        <div class="cluster-permit">${permitLabel}</div>
+                    </div>`;
+                }).join('');
                 summary.querySelectorAll('.enhance-cluster').forEach(el => {
                     el.addEventListener('click', () => {
                         const c = s.clusters[Number(el.dataset.idx)];
@@ -679,14 +878,19 @@ function renderS2Chart(detections) {
     let svg = `<svg viewBox="0 0 ${width} ${height}">`;
     svg += `<line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
 
-    // Year gridlines
-    const firstYear = new Date(minDate).getFullYear();
-    const lastYear = new Date(maxDate).getFullYear();
-    for (let y = firstYear + 1; y <= lastYear; y++) {
-        const jan1 = new Date(y, 0, 1).getTime();
-        const x = margin.left + ((jan1 - minDate) / dateRange) * innerW;
-        svg += `<line x1="${x}" y1="${margin.top}" x2="${x}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>`;
-        svg += `<text x="${x}" y="${height - 2}" fill="rgba(255,255,255,0.3)" font-size="10" text-anchor="middle">${y}</text>`;
+    // Month gridlines with labels
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const firstMonth = new Date(minDate);
+    firstMonth.setDate(1);
+    firstMonth.setMonth(firstMonth.getMonth() + 1);
+    const lastMonth = new Date(maxDate);
+    for (let d = new Date(firstMonth); d <= lastMonth; d.setMonth(d.getMonth() + 1)) {
+        const t = d.getTime();
+        const x = margin.left + ((t - minDate) / dateRange) * innerW;
+        const isJan = d.getMonth() === 0;
+        svg += `<line x1="${x}" y1="${margin.top}" x2="${x}" y2="${height - margin.bottom}" stroke="rgba(255,255,255,${isJan ? 0.15 : 0.06})" stroke-width="1"/>`;
+        const label = isJan ? `${MONTHS[0]} ${d.getFullYear()}` : MONTHS[d.getMonth()];
+        svg += `<text x="${x}" y="${height - 2}" fill="rgba(255,255,255,${isJan ? 0.4 : 0.25})" font-size="9" text-anchor="middle">${label}</text>`;
     }
 
     // B12 detection dots

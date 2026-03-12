@@ -9,10 +9,26 @@ const CACHE_PREFIX = 's2:';
 
 function cacheKey(flareId) { return CACHE_PREFIX + flareId; }
 
-function saveCache(flareId, detections, clusters) {
+function saveCache(flareId, detections, clusters, processedDates) {
+    // Strip nested detections from clusters (redundant with top-level detections array)
+    const slimClusters = clusters?.map(({ detections: _, ...rest }) => rest) ?? null;
+    const data = JSON.stringify({ detections, clusters: slimClusters, processedDates: [...processedDates] });
+    const key = cacheKey(flareId);
     try {
-        localStorage.setItem(cacheKey(flareId), JSON.stringify({ detections, clusters }));
-    } catch { /* quota exceeded — ignore */ }
+        localStorage.setItem(key, data);
+    } catch {
+        // Quota exceeded — evict oldest s2 entries and retry
+        const s2Keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k?.startsWith(CACHE_PREFIX)) s2Keys.push(k);
+        }
+        const toRemove = Math.max(1, Math.ceil(s2Keys.length / 2));
+        for (let i = 0; i < toRemove && i < s2Keys.length; i++) {
+            localStorage.removeItem(s2Keys[i]);
+        }
+        try { localStorage.setItem(key, data); } catch { /* still full */ }
+    }
 }
 
 function loadCache(flareId) {
@@ -22,12 +38,43 @@ function loadCache(flareId) {
     } catch { return null; }
 }
 
+// Load all cached S2 data from localStorage — returns flat array of detection/cluster objects with flare_id
+export function loadAllCached() {
+    const all = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k?.startsWith(CACHE_PREFIX)) continue;
+        const flareId = k.slice(CACHE_PREFIX.length);
+        try {
+            const cached = JSON.parse(localStorage.getItem(k));
+            const points = cached.clusters || cached.detections || [];
+            for (const p of points) {
+                all.push({ ...p, flare_id: Number(flareId) });
+            }
+        } catch { /* skip corrupt entries */ }
+    }
+    return all;
+}
+
 export function setUpdateCallback(fn) { onUpdate = fn; }
 
-function setMapDetections(map, detections) {
+let activeFlareId = null;
+
+function refreshS2Source(map) {
+    // Merge global cached S2 data with live detections for the active flare
+    const cached = loadAllCached();
+    // Remove cached entries for active flare (replaced by live state)
+    const filtered = activeFlareId != null
+        ? cached.filter(d => d.flare_id !== activeFlareId)
+        : cached;
+    // Add live detections/clusters for active flare
+    const live = activeFlareId != null
+        ? (state.clusters || state.detections).map(d => ({ ...d, flare_id: activeFlareId }))
+        : [];
+    const all = [...filtered, ...live];
     const fc = {
         type: 'FeatureCollection',
-        features: detections.map(d => ({
+        features: all.map(d => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [d.lon, d.lat] },
             properties: d,
@@ -40,6 +87,7 @@ export function enhance(flare, map) {
     cancelEnhance(map);
 
     const p = flare.properties;
+    activeFlareId = Number(p.flare_id);
     const lon = Number(p.lon);
     const lat = Number(p.lat);
 
@@ -51,21 +99,26 @@ export function enhance(flare, map) {
     // Zoom to pixel square
     map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 80, maxZoom: 17 });
 
-    // Check cache first
+    // Check cache — if complete (has clusters), use directly; otherwise seed and continue
     const cached = loadCache(p.flare_id);
-    if (cached) {
+    if (cached?.clusters) {
         state = { enhancing: false, progress: null, detections: cached.detections, clusters: cached.clusters, error: null };
-        setMapDetections(map, cached.clusters || cached.detections);
+        refreshS2Source(map);
         onUpdate?.(state);
         return;
     }
+
+    // Seed with any partial cache — track all processed dates (not just those with detections)
+    const cachedDetections = cached?.detections || [];
+    const processedDates = new Set(cached?.processedDates || []);
 
     const end = p.last_detected;
     // Cap to last year to keep image count manageable
     const oneYearBefore = new Date(new Date(end).getTime() - 365 * 86400000).toISOString().slice(0, 10);
     const start = p.first_detected > oneYearBefore ? p.first_detected : oneYearBefore;
 
-    state = { enhancing: true, progress: { done: 0, total: null }, detections: [], clusters: null, error: null };
+    state = { enhancing: true, progress: { done: 0, total: null }, detections: [...cachedDetections], clusters: null, error: null };
+    refreshS2Source(map);
     onUpdate?.(state);
 
     // Module worker — ES module imports work natively
@@ -79,19 +132,25 @@ export function enhance(flare, map) {
                 const clipped = msg.features.filter(d =>
                     d.lon >= bbox[0] && d.lon <= bbox[2] && d.lat >= bbox[1] && d.lat <= bbox[3]);
                 state.detections.push(...clipped);
-                setMapDetections(map, state.detections);
+                refreshS2Source(map);
                 onUpdate?.(state);
                 break;
 
+            case 'image-done':
+                // Track all processed dates (including those with no detections)
+                processedDates.add(msg.date);
+                saveCache(p.flare_id, state.detections, state.clusters, processedDates);
+                break;
+
             case 'progress':
-                state.progress = { done: msg.done, total: msg.total };
+                state.progress = { done: msg.done, total: msg.total, skipped: msg.skipped || 0 };
                 onUpdate?.(state);
                 break;
 
             case 'clusters':
                 state.clusters = msg.features.filter(c =>
                     c.lon >= bbox[0] && c.lon <= bbox[2] && c.lat >= bbox[1] && c.lat <= bbox[3]);
-                setMapDetections(map, state.clusters);
+                refreshS2Source(map);
                 onUpdate?.(state);
                 break;
 
@@ -103,7 +162,8 @@ export function enhance(flare, map) {
 
             case 'done':
                 state.enhancing = false;
-                saveCache(p.flare_id, state.detections, state.clusters);
+                saveCache(p.flare_id, state.detections, state.clusters, processedDates);
+                refreshS2Source(map);
                 onUpdate?.(state);
                 worker?.terminate();
                 worker = null;
@@ -118,7 +178,9 @@ export function enhance(flare, map) {
     };
 
     // Relaxed thresholds for single-pixel enhance: even 1 detection is informative
-    worker.postMessage({ type: 'detect', bbox, start, end, clusterOptions: { minDates: 1, minAvgB12: 0.5 } });
+    const skipDates = processedDates.size > 0 ? [...processedDates] : undefined;
+    const priorDetections = cachedDetections.length > 0 ? cachedDetections : undefined;
+    worker.postMessage({ type: 'detect', bbox, start, end, clusterOptions: { minDates: 1, minAvgB12: 0.5 }, skipDates, priorDetections });
 }
 
 export function cancelEnhance(map) {
@@ -128,9 +190,9 @@ export function cancelEnhance(map) {
         worker = null;
     }
     state = { enhancing: false, progress: null, detections: [], clusters: null, error: null };
-    // Clear map source
-    const empty = { type: 'FeatureCollection', features: [] };
-    map?.getSource('s2-detections')?.setData(empty);
+    activeFlareId = null;
+    // Restore global cached S2 data
+    refreshS2Source(map);
     onUpdate?.(state);
 }
 

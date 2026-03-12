@@ -112,6 +112,44 @@ export async function queryPermits({ operator } = {}) {
     };
 }
 
+export async function queryNearbyPermits(lat, lon, radiusKm = 0.75) {
+    const dLat = radiusKm / 110.54;
+    const dLon = radiusKm / (111.32 * Math.cos(lat * Math.PI / 180));
+    const result = await query(`
+        SELECT name, operator_name, district, county, release_type,
+            CAST(earliest_effective AS VARCHAR) AS earliest_effective,
+            CAST(latest_expiration AS VARCHAR) AS latest_expiration,
+            n_filings, latitude, longitude
+        FROM 'permits.parquet'
+        WHERE latitude BETWEEN ${lat - dLat} AND ${lat + dLat}
+          AND longitude BETWEEN ${lon - dLon} AND ${lon + dLon}
+    `);
+    return rows(result);
+}
+
+export async function queryNearestPermit(lat, lon, radiusKm = 0.375) {
+    const dLat = radiusKm / 110.54;
+    const dLon = radiusKm / (111.32 * Math.cos(lat * Math.PI / 180));
+    const result = await query(`
+        SELECT name, operator_name, district, county, release_type,
+            CAST(earliest_effective AS VARCHAR) AS earliest_effective,
+            CAST(latest_expiration AS VARCHAR) AS latest_expiration,
+            n_filings,
+            latitude, longitude,
+            111.32 * sqrt(
+                power((latitude - ${lat}) * cos(radians(${lat})), 2) +
+                power(longitude - (${lon}), 2)
+            ) AS distance_km
+        FROM 'permits.parquet'
+        WHERE latitude BETWEEN ${lat - dLat} AND ${lat + dLat}
+          AND longitude BETWEEN ${lon - dLon} AND ${lon + dLon}
+        ORDER BY distance_km
+        LIMIT 1
+    `);
+    const r = rows(result);
+    return r.length > 0 ? r[0] : null;
+}
+
 export async function queryPlumes() {
     const result = await query(`
         SELECT plume_id, latitude, longitude, source, satellite,
