@@ -150,7 +150,7 @@ function addLayers() {
         id: 'flare-pixels-layer', type: 'line', source: 'flare-pixels',
         filter: ['!=', ['get', 'near_excluded_facility'], true],
         paint: {
-            'line-color': 'rgba(255,240,150,0.8)',
+            'line-color': 'rgba(255,255,255,0.8)',
             'line-width': 1,
             'line-dasharray': [3, 2]
         }
@@ -171,7 +171,7 @@ function addLayers() {
         },
         minzoom: 13,
         paint: {
-            'text-color': 'rgba(255,240,150,0.8)',
+            'text-color': 'rgba(255,255,255,0.8)',
             'text-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 15, 1]
         }
     });
