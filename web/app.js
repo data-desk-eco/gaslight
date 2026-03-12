@@ -844,18 +844,11 @@ function showEnhanceDetail(feature) {
                 list.className = 'enhance-results';
                 list.innerHTML = s.clusters.map(c =>
                     `<div class="enhance-cluster" data-id="${c.id}">
-                        <div class="cluster-chart"></div>
-                        <div class="cluster-header">
-                            <span class="cluster-dot"></span>
-                            B12 ${c.max_b12.toFixed(2)} · ${c.detection_count} det · ${c.first_date}${c.first_date !== c.last_date ? ` – ${c.last_date}` : ''}
-                        </div>
+                        <span class="cluster-dot"></span>
+                        B12 ${c.max_b12.toFixed(2)} · ${c.detection_count} det · ${c.first_date}${c.first_date !== c.last_date ? ` – ${c.last_date}` : ''}
                     </div>`
                 ).join('');
                 list.querySelectorAll('.enhance-cluster').forEach(el => {
-                    const c = getCluster(el.dataset.id);
-                    if (c?.detections?.length) {
-                        renderS2Chart(c.detections, el.querySelector('.cluster-chart'));
-                    }
                     el.addEventListener('click', () => {
                         const cluster = getCluster(el.dataset.id);
                         if (cluster) {
