@@ -1,5 +1,3 @@
-import { queryTableRaw, queryTableCount } from './db.js?v=4';
-
 const LAYERS = {
     flares:  { label: 'Flares',  color: '#ffaa44', latCol: 'lat',       lonCol: 'lon',       idCol: 'flare_id' },
     permits: { label: 'Permits', color: '#00ccff', latCol: 'latitude',  lonCol: 'longitude',  idCol: null },
@@ -8,6 +6,7 @@ const LAYERS = {
 };
 
 const MIN_WIDTH = 300;
+const MAX_ROWS = 1000;
 
 let map = null;
 let drawerEl = null;
@@ -24,6 +23,9 @@ let selectedIdx = -1;
 let sortCol = null;
 let sortDir = 'ASC';
 
+// Feature data pushed from app.js after each load
+const allData = {};
+
 // Callbacks set by app.js
 let onRowClick = null;
 
@@ -35,6 +37,12 @@ export function init(mapInstance, { onSelect } = {}) {
     bindLayerToggles();
     bindMapEvents();
     bindKeyboard();
+}
+
+// Called by app.js after loading data for a layer
+export function setData(layer, features) {
+    allData[layer] = features.map(f => f.properties);
+    if (layer === activeTab && drawerWidth >= MIN_WIDTH) refreshTable();
 }
 
 function createDOM() {
@@ -90,9 +98,7 @@ function bindDrag() {
         dragging = true;
         drawerEl.style.transition = 'none';
 
-        // Prefetch data so it's ready when the drawer opens
         if (!activeTab) activateFirstTab();
-        prefetch();
     });
 
     handleEl.addEventListener('pointermove', e => {
@@ -110,33 +116,12 @@ function bindDrag() {
         if (drawerWidth > 0 && drawerWidth < MIN_WIDTH) {
             setDrawerWidth(0);
         } else if (drawerWidth >= MIN_WIDTH) {
-            // Prefetch may still be in flight — if so it'll render when done.
-            // Otherwise refresh now (e.g. re-opening after a pan).
-            if (!_prefetchPromise) refreshTable();
+            refreshTable();
         }
     };
 
     handleEl.addEventListener('pointerup', endDrag);
     handleEl.addEventListener('pointercancel', endDrag);
-}
-
-let _prefetchPromise = null;
-
-function prefetch() {
-    if (!activeTab || _prefetchPromise) return;
-
-    const b = map.getBounds();
-    const bounds = { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() };
-
-    _prefetchPromise = Promise.all([
-        queryTableRaw(activeTab, { bounds, orderBy: sortCol, orderDir: sortDir, limit: 1000 }),
-        queryTableCount(activeTab, { bounds }),
-    ]).then(([data, count]) => {
-        currentRows = data;
-        currentTotalCount = count;
-        renderTable(data, count);
-        _prefetchPromise = null;
-    }).catch(() => { _prefetchPromise = null; });
 }
 
 function bindLayerToggles() {
@@ -161,7 +146,6 @@ function bindMapEvents() {
 function bindKeyboard() {
     document.addEventListener('keydown', e => {
         if (drawerWidth < MIN_WIDTH || !activeTab) return;
-        // Don't capture when typing in inputs
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
         const visible = getVisibleLayers();
@@ -295,20 +279,41 @@ function activateFirstTab() {
     }
 }
 
-async function refreshTable() {
+// Filter + sort the already-loaded data client-side
+function refreshTable() {
     if (!activeTab || drawerWidth < MIN_WIDTH) return;
 
+    const rows = allData[activeTab] || [];
+    const info = LAYERS[activeTab];
     const b = map.getBounds();
-    const bounds = { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() };
+    const south = b.getSouth(), north = b.getNorth(), west = b.getWest(), east = b.getEast();
 
-    const [data, count] = await Promise.all([
-        queryTableRaw(activeTab, { bounds, orderBy: sortCol, orderDir: sortDir, limit: 1000 }),
-        queryTableCount(activeTab, { bounds }),
-    ]);
+    // Viewport filter
+    let filtered = rows.filter(r => {
+        const lat = Number(r[info.latCol]), lon = Number(r[info.lonCol]);
+        return lat >= south && lat <= north && lon >= west && lon <= east;
+    });
 
-    currentRows = data;
-    currentTotalCount = count;
-    renderTable(data, count);
+    const totalCount = filtered.length;
+
+    // Sort
+    if (sortCol) {
+        const dir = sortDir === 'DESC' ? -1 : 1;
+        filtered.sort((a, b) => {
+            const va = a[sortCol], vb = b[sortCol];
+            if (va == null && vb == null) return 0;
+            if (va == null) return 1;
+            if (vb == null) return -1;
+            return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+        });
+    }
+
+    // Paginate
+    if (filtered.length > MAX_ROWS) filtered = filtered.slice(0, MAX_ROWS);
+
+    currentRows = filtered;
+    currentTotalCount = totalCount;
+    renderTable(filtered, totalCount);
 }
 
 function renderTable(data, totalCount) {

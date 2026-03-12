@@ -122,10 +122,16 @@ async function _buildOperatorIndex() {
         nearest_permit AS (
             SELECT DISTINCT ON (flare_id) flare_id,
                 nearest_permit_name AS permit_name,
-                min_distance_km AS nearest_permit_km,
-                earliest_effective, latest_expiration
+                min_distance_km AS nearest_permit_km
             FROM permit_ops
             ORDER BY flare_id, min_distance_km
+        ),
+        permit_dates AS (
+            SELECT flare_id,
+                MIN(earliest_effective) AS earliest_effective,
+                MAX(latest_expiration) AS latest_expiration
+            FROM permit_ops
+            GROUP BY flare_id
         )
         SELECT b.flare_id, b.operator_name,
             CASE WHEN a.n_operators = 1 THEN 'sole'
@@ -133,10 +139,11 @@ async function _buildOperatorIndex() {
                  ELSE 'contested'
             END AS confidence,
             np.permit_name, np.nearest_permit_km,
-            np.earliest_effective, np.latest_expiration
+            pd.earliest_effective, pd.latest_expiration
         FROM best b
         LEFT JOIN agg a USING (flare_id)
         LEFT JOIN nearest_permit np USING (flare_id)
+        LEFT JOIN permit_dates pd USING (flare_id)
     `);
     _indexReady = true;
 }
@@ -309,11 +316,15 @@ export async function queryOperatorByLocation(lat, lon) {
             FROM best b, all_ops a
         ),
         nearest_permit AS (
-            SELECT nearest_permit_name, min_distance_km AS nearest_permit_km,
-                earliest_effective, latest_expiration
+            SELECT nearest_permit_name, min_distance_km AS nearest_permit_km
             FROM permit_ops
             ORDER BY min_distance_km
             LIMIT 1
+        ),
+        permit_dates AS (
+            SELECT MIN(earliest_effective) AS earliest_effective,
+                MAX(latest_expiration) AS latest_expiration
+            FROM permit_ops
         )
         SELECT b.operator_name,
             CASE WHEN a.n_operators = 1 THEN 'sole'
@@ -322,10 +333,11 @@ export async function queryOperatorByLocation(lat, lon) {
             END AS confidence,
             np.nearest_permit_name AS permit_name,
             np.nearest_permit_km,
-            np.earliest_effective,
-            np.latest_expiration
+            pd.earliest_effective,
+            pd.latest_expiration
         FROM best b, agg a
         LEFT JOIN nearest_permit np ON true
+        LEFT JOIN permit_dates pd ON true
     `);
     const r = rows(result);
     return r.length > 0 ? r[0] : null;
@@ -409,42 +421,5 @@ export async function queryWells({ operator, bounds } = {}) {
     };
 }
 
-const ALLOWED_TABLES = new Set(['flares', 'permits', 'plumes', 'wells']);
 
-function tableWhere(table, bounds) {
-    const latCol = table === 'flares' ? 'lat' : 'latitude';
-    const lonCol = table === 'flares' ? 'lon' : 'longitude';
-    let where = 'WHERE 1=1';
-    if (table === 'permits') where += ' AND latitude IS NOT NULL AND longitude IS NOT NULL';
-    if (bounds) {
-        where += ` AND ${latCol} BETWEEN ${bounds.south} AND ${bounds.north}`;
-        where += ` AND ${lonCol} BETWEEN ${bounds.west} AND ${bounds.east}`;
-    }
-    return where;
-}
-
-export async function queryTableRaw(table, { bounds, orderBy, orderDir = 'ASC', limit = 1000 } = {}) {
-    if (!ALLOWED_TABLES.has(table)) throw new Error(`Unknown table: ${table}`);
-    const where = tableWhere(table, bounds);
-
-    let order = '';
-    if (orderBy) order = `ORDER BY "${orderBy}" ${orderDir === 'DESC' ? 'DESC' : 'ASC'}`;
-
-    const dateSelect = table === 'permits'
-        ? `SELECT * REPLACE (
-               CAST(earliest_effective AS VARCHAR) AS earliest_effective,
-               CAST(latest_expiration AS VARCHAR) AS latest_expiration
-           )`
-        : table === 'plumes'
-        ? `SELECT * REPLACE (CAST(date AS VARCHAR) AS date)`
-        : 'SELECT *';
-
-    return rows(await query(`${dateSelect} FROM '${table}.parquet' ${where} ${order} LIMIT ${limit}`));
-}
-
-export async function queryTableCount(table, { bounds } = {}) {
-    if (!ALLOWED_TABLES.has(table)) throw new Error(`Unknown table: ${table}`);
-    const r = rows(await query(`SELECT COUNT(*) AS cnt FROM '${table}.parquet' ${tableWhere(table, bounds)}`));
-    return r[0]?.cnt || 0;
-}
 

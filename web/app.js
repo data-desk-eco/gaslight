@@ -318,18 +318,21 @@ async function refreshFlares() {
     const px = flarePixelData(data);
     map.getSource('flare-pixels').setData(px.squares);
     map.getSource('flare-pixel-labels').setData(px.labels);
+    drawer.setData('flares', data.features);
 }
 
 async function loadPermits() {
     if (!layerState.permits) return;
     const data = await db.queryPermits({ operator: operatorFilter || undefined });
     map.getSource('permits').setData(data);
+    drawer.setData('permits', data.features);
 }
 
 async function loadPlumes() {
     if (!layerState.plumes) return;
     const data = await db.queryPlumes();
     map.getSource('plumes').setData(data);
+    drawer.setData('plumes', data.features);
 }
 
 async function loadWells() {
@@ -338,6 +341,7 @@ async function loadWells() {
     const bounds = { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() };
     const data = await db.queryWells({ operator: operatorFilter || undefined, bounds });
     map.getSource('wells').setData(data);
+    drawer.setData('wells', data.features);
 }
 
 
