@@ -8,6 +8,13 @@ let onUpdate = null;  // callback for UI updates
 const CACHE_PREFIX = 's2:';
 const clusterIndex = new Map(); // id → cluster object (with detections)
 
+function clusterHash(lat, lon) {
+    const s = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36);
+}
+
 function cacheKey(flareId) { return CACHE_PREFIX + flareId; }
 
 function saveCache(flareId, detections, clusters, processedDates) {
@@ -50,9 +57,11 @@ export function loadAllCached() {
             const cached = JSON.parse(localStorage.getItem(k));
             const clusters = cached.clusters || [];
             for (const c of clusters) {
+                // Backfill id for old cache entries that predate cluster hashing
+                if (!c.id) c.id = clusterHash(c.lat, c.lon);
                 const enriched = { ...c, flare_id: Number(flareId) };
                 all.push(enriched);
-                clusterIndex.set(c.id, enriched);
+                clusterIndex.set(enriched.id, enriched);
             }
         } catch { /* skip corrupt entries */ }
     }
