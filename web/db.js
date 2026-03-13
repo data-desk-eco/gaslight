@@ -438,6 +438,3 @@ export async function queryWells({ operator, bounds } = {}) {
         }))
     };
 }
-
-
-

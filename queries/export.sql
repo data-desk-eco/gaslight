@@ -63,7 +63,7 @@ COPY (
     WHERE v.detected AND v.date >= fs.first_detected
 ) TO 'web/data/detections.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- Lease production aggregates (shared by leases parquet and footprints export)
+-- Lease production aggregates (shared by leases + wells parquets)
 -- Filtered to start_date+ to match VNF analysis window
 -- Flaring numerator: from disposition table (months with flaring only)
 -- Production denominator: from full production table (ALL months, not just flaring months)
