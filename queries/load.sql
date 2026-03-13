@@ -79,6 +79,19 @@ FROM read_csv('data/pdq/OG_LEASE_CYCLE_DISP_DATA_TABLE.dsv',
 WHERE COALESCE(TRY_CAST(LEASE_GAS_DISPCD04_VOL AS DOUBLE), 0) > 0
    OR COALESCE(TRY_CAST(LEASE_CSGD_DISPCDE04_VOL AS DOUBLE), 0) > 0;
 
+-- PDQ lease production (total gas/oil/csgd production, all months, Permian districts only)
+CREATE OR REPLACE TABLE raw.lease_production AS
+SELECT
+    OIL_GAS_CODE AS oil_gas_code, DISTRICT_NO AS district_no, LEASE_NO AS lease_no,
+    CYCLE_YEAR AS cycle_year, CYCLE_MONTH AS cycle_month,
+    OPERATOR_NO AS operator_no,
+    COALESCE(TRY_CAST(LEASE_GAS_PROD_VOL AS DOUBLE), 0) AS lease_gas_prod_vol,
+    COALESCE(TRY_CAST(LEASE_CSGD_PROD_VOL AS DOUBLE), 0) AS lease_csgd_prod_vol,
+    LEASE_NAME AS lease_name, OPERATOR_NAME AS operator_name
+FROM read_csv('data/pdq/OG_LEASE_CYCLE_DATA_TABLE.dsv',
+    delim='}', header=true, all_varchar=true, ignore_errors=true)
+WHERE DISTRICT_NO IN ('07','08','09','10','11');
+
 -- PDQ lease summary master
 CREATE OR REPLACE TABLE raw.pdq_leases AS
 SELECT

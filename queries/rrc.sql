@@ -68,7 +68,8 @@ WHERE greatest(ST_XMax(a.geom) - ST_XMin(a.geom),
 
 CREATE INDEX idx_leases_geom ON rrc.leases USING RTREE (geom);
 
--- Monthly reported flaring by lease
+-- Monthly reported flaring by lease (disposition code 04 = flared/vented)
+-- Joined with actual production volumes from lease_production for proper denominator
 CREATE OR REPLACE TABLE rrc.production AS
 SELECT
     gd.oil_gas_code, dm.rrc_district AS district,
@@ -78,6 +79,13 @@ SELECT
     COALESCE(gd.lease_gas_dispcd04_vol, 0) AS gas_flared_mcf,
     COALESCE(gd.lease_csgd_dispcde04_vol, 0) AS csgd_flared_mcf,
     COALESCE(gd.lease_gas_dispcd04_vol, 0) + COALESCE(gd.lease_csgd_dispcde04_vol, 0) AS total_flared_mcf,
-    COALESCE(gd.lease_gas_total_vol, 0) + COALESCE(gd.lease_csgd_total_vol, 0) AS total_gas_prod_mcf
+    COALESCE(gd.lease_gas_total_vol, 0) + COALESCE(gd.lease_csgd_total_vol, 0) AS total_disposed_mcf,
+    COALESCE(lp.lease_gas_prod_vol, 0) + COALESCE(lp.lease_csgd_prod_vol, 0) AS total_gas_prod_mcf
 FROM raw.gas_disposition gd
-LEFT JOIN rrc.district_map dm ON dm.pdq_district = gd.district_no;
+LEFT JOIN rrc.district_map dm ON dm.pdq_district = gd.district_no
+LEFT JOIN raw.lease_production lp
+    ON lp.oil_gas_code = gd.oil_gas_code
+    AND lp.district_no = gd.district_no
+    AND lp.lease_no = gd.lease_no
+    AND lp.cycle_year = gd.cycle_year
+    AND lp.cycle_month = gd.cycle_month;

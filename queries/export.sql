@@ -63,12 +63,45 @@ COPY (
     WHERE v.detected AND v.date >= fs.first_detected
 ) TO 'web/data/detections.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
+-- Lease production aggregates (shared by leases parquet and footprints export)
+-- Filtered to start_date+ to match VNF analysis window
+-- Flaring numerator: from disposition table (months with flaring only)
+-- Production denominator: from full production table (ALL months, not just flaring months)
+CREATE OR REPLACE TEMP TABLE lease_production AS
+WITH flared AS (
+    SELECT district, lease_number,
+        sum(total_flared_mcf) AS total_flared_mcf,
+        mode(operator_name) AS operator_name,
+        mode(lease_name) AS lease_name
+    FROM rrc.production
+    WHERE district IN ('6E','7B','7C','08','8A')
+      AND make_date(year, month, 1) >= getvariable('start_date')
+    GROUP BY 1, 2
+),
+produced AS (
+    SELECT dm.rrc_district AS district, lp.lease_no AS lease_number,
+        sum(lp.lease_gas_prod_vol + lp.lease_csgd_prod_vol) AS total_gas_prod_mcf
+    FROM raw.lease_production lp
+    JOIN rrc.district_map dm ON dm.pdq_district = lp.district_no
+    WHERE dm.rrc_district IN ('6E','7B','7C','08','8A')
+      AND make_date(lp.cycle_year::INT, lp.cycle_month::INT, 1) >= getvariable('start_date')
+    GROUP BY 1, 2
+)
+SELECT f.district, f.lease_number,
+    f.total_flared_mcf,
+    COALESCE(p.total_gas_prod_mcf, f.total_flared_mcf) AS total_gas_prod_mcf,
+    f.operator_name, f.lease_name
+FROM flared f
+LEFT JOIN produced p
+    ON p.district = f.district
+    AND LPAD(p.lease_number, 6, '0') = LPAD(f.lease_number, 6, '0');
+
 -- Leases parquet (flare ↔ lease matches via OTLS boundaries)
 COPY (
     SELECT
         sl.flare_id, sl.lease_district, sl.lease_number, sl.oil_gas_code, sl.well_count,
-        round(COALESCE(lf.reported_mcf, 0), 0) AS reported_flared_mcf,
-        lf.operator_name AS lease_operator, lf.lease_name
+        round(COALESCE(lp.total_flared_mcf, 0), 0) AS reported_flared_mcf,
+        lp.operator_name AS lease_operator, lp.lease_name
     FROM (
         SELECT fs.flare_id, ll.lease_district, ll.lease_number, ll.oil_gas_code, ll.well_count
         FROM sites fs
@@ -78,17 +111,50 @@ COPY (
             AND ST_Contains(ll.geom, fs.geom)
         WHERE NOT fs.near_excluded_facility
     ) sl
-    LEFT JOIN (
-        SELECT lease_district, lease_number,
-            sum(total_flared_mcf) AS reported_mcf,
-            mode(operator_name) AS operator_name,
-            mode(lease_name) AS lease_name
-        FROM rrc.production
-        WHERE district IN ('7B','7C','08','8A')
-        GROUP BY 1, 2
-    ) lf ON LPAD(lf.lease_district, 2, '0') = LPAD(sl.lease_district, 2, '0')
-        AND LPAD(lf.lease_number, 6, '0') = LPAD(sl.lease_number, 6, '0')
+    LEFT JOIN lease_production lp
+        ON lp.district = sl.lease_district
+        AND LPAD(lp.lease_number, 6, '0') = LPAD(sl.lease_number, 6, '0')
 ) TO 'web/data/leases.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
+-- Lease footprints parquet (polygons with flaring volumes for map layer)
+-- Only includes leases that report flaring; geometry simplified for web display
+COPY (
+    SELECT
+        l.lease_district, l.lease_number, l.oil_gas_code, l.well_count,
+        l.survey_count,
+        lp.operator_name, lp.lease_name,
+        round(lp.total_flared_mcf, 0)::INT AS total_flared_mcf,
+        round(lp.total_gas_prod_mcf, 0)::INT AS total_gas_prod_mcf,
+        CASE WHEN lp.total_gas_prod_mcf > 0
+             THEN round(100.0 * lp.total_flared_mcf / lp.total_gas_prod_mcf, 1)
+             ELSE NULL END AS flaring_intensity_pct,
+        ST_AsGeoJSON(ST_Simplify(l.geom, 0.001)) AS geometry
+    FROM rrc.leases l
+    JOIN lease_production lp
+        ON lp.district = l.lease_district
+        AND LPAD(lp.lease_number, 6, '0') = LPAD(l.lease_number, 6, '0')
+    WHERE l.lease_district IN ('6E','7B','7C','08','8A')
+      AND lp.total_flared_mcf > 0
+) TO 'web/data/lease_footprints.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
+-- Lease monthly production time series (for sparklines in lease detail)
+-- Only for leases that appear in lease_footprints (have flaring), filtered to start_date+
+COPY (
+    SELECT
+        p.district AS lease_district, p.lease_number,
+        make_date(p.year, p.month, 1)::VARCHAR AS date,
+        round(p.total_flared_mcf, 0)::INT AS flared_mcf,
+        round(CASE WHEN p.total_gas_prod_mcf > 0 THEN p.total_gas_prod_mcf
+                   ELSE p.total_disposed_mcf END, 0)::INT AS produced_mcf
+    FROM rrc.production p
+    JOIN lease_production lp
+        ON lp.district = p.district
+        AND LPAD(lp.lease_number, 6, '0') = LPAD(p.lease_number, 6, '0')
+    WHERE p.district IN ('6E','7B','7C','08','8A')
+      AND lp.total_flared_mcf > 0
+      AND make_date(p.year, p.month, 1) >= getvariable('start_date')
+    ORDER BY p.district, p.lease_number, p.year, p.month
+) TO 'web/data/lease_monthly.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- Permits parquet (one row per filing, excludes gas plants)
 COPY (

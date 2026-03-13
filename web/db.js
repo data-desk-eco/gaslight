@@ -19,7 +19,7 @@ async function _init() {
     await db.instantiate(mainModule);
     conn = await db.connect();
 
-    const files = ['flares', 'leases', 'permits', 'plumes', 'detections', 'wells'];
+    const files = ['flares', 'leases', 'permits', 'plumes', 'detections', 'wells', 'lease_footprints', 'lease_monthly'];
     await Promise.all(files.map(async name => {
         const resp = await fetch(`data/${name}.parquet`);
         const buf = await resp.arrayBuffer();
@@ -198,6 +198,41 @@ export async function queryLeases(flareId) {
         WHERE flare_id = ${Number(flareId)}
     `);
     return rows(result);
+}
+
+export async function queryLeaseMonthly(leaseDistrict, leaseNumber) {
+    const ld = leaseDistrict.replace(/'/g, "''");
+    const ln = String(leaseNumber).replace(/'/g, "''");
+    const result = await query(`
+        SELECT date, flared_mcf, produced_mcf
+        FROM 'lease_monthly.parquet'
+        WHERE lease_district = '${ld}'
+          AND lease_number = '${ln}'
+        ORDER BY date
+    `);
+    return rows(result);
+}
+
+export async function queryLeaseFootprints() {
+    const result = await query(`
+        SELECT lease_district, lease_number, oil_gas_code, well_count,
+            survey_count, operator_name, lease_name,
+            total_flared_mcf, total_gas_prod_mcf, flaring_intensity_pct,
+            geometry
+        FROM 'lease_footprints.parquet'
+    `);
+    const data = rows(result);
+    return {
+        type: 'FeatureCollection',
+        features: data.map(r => {
+            const { geometry, ...props } = r;
+            return {
+                type: 'Feature',
+                geometry: JSON.parse(geometry),
+                properties: props
+            };
+        })
+    };
 }
 
 export async function queryPermits({ operator } = {}) {

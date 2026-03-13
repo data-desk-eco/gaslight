@@ -11,6 +11,7 @@ const COLORS = {
     permit: _css('--color-permit'),
     plume: _css('--color-plume'),
     well: _css('--color-well'),
+    lease: _css('--color-lease'),
 };
 
 // Geo constants
@@ -40,7 +41,7 @@ function openDetail(title, lat, lon, bodyHtml) {
     $('detail-panel').classList.remove('hidden');
 }
 
-let layerState = { flares: true, permits: true, plumes: false, wells: false };
+let layerState = { flares: true, permits: true, leases: false, plumes: false, wells: false };
 let operatorFilter = '';
 let overlappingFeatures = [];
 let overlapIndex = 0;
@@ -132,6 +133,7 @@ map.on('load', async () => {
 function addEmptySources() {
     const empty = { type: 'FeatureCollection', features: [] };
     map.addSource('texas', { type: 'geojson', data: 'data/texas.geojson' });
+    map.addSource('leases', { type: 'geojson', data: empty });
     map.addSource('flares', { type: 'geojson', data: empty });
     map.addSource('permits', { type: 'geojson', data: empty });
     map.addSource('plumes', { type: 'geojson', data: empty });
@@ -159,6 +161,31 @@ function addLayers() {
         ['coalesce', ['get', 'max_release_rate_mcf_day'], 0],
         0, 1.5, 100, 2, 1000, 3.5, 5000, 6, 25000, 10, 100000, 16
     ];
+
+    // Lease footprint fill: colored by flaring intensity (% of gas flared)
+    const intensityColor = [
+        'interpolate', ['linear'],
+        ['coalesce', ['get', 'flaring_intensity_pct'], 0],
+        0, 'rgba(68, 204, 136, 0.25)',   // green — low intensity
+        2, 'rgba(255, 204, 68, 0.3)',     // yellow — moderate
+        5, 'rgba(255, 136, 68, 0.35)',    // orange — high
+        10, 'rgba(255, 68, 68, 0.4)',     // red — very high
+        25, 'rgba(200, 40, 40, 0.45)'     // dark red — extreme
+    ];
+    map.addLayer({
+        id: 'leases-fill', type: 'fill', source: 'leases',
+        layout: { visibility: 'none' },
+        paint: { 'fill-color': intensityColor }
+    });
+    map.addLayer({
+        id: 'leases-outline', type: 'line', source: 'leases',
+        layout: { visibility: 'none' },
+        paint: {
+            'line-color': COLORS.lease,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 12, 1.5],
+            'line-opacity': 0.6
+        }
+    });
 
     map.addLayer({
         id: 'wells-layer', type: 'circle', source: 'wells',
@@ -333,6 +360,12 @@ async function loadPlumes() {
     drawer.setData('plumes', data.features);
 }
 
+async function loadLeases() {
+    if (!layerState.leases) return;
+    const data = await db.queryLeaseFootprints();
+    map.getSource('leases').setData(data);
+}
+
 async function loadWells() {
     if (!layerState.wells) return;
     const b = map.getBounds();
@@ -379,6 +412,7 @@ function updateStats() {
 const LAYER_MAP = {
     flares: ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer', 'flare-pixels-label', 's2-points'],
     permits: ['permits-layer'],
+    leases: ['leases-fill', 'leases-outline'],
     plumes: ['plumes-layer'],
     wells: ['wells-layer']
 };
@@ -391,6 +425,7 @@ function setLayerVisibility(layer, visible) {
     }
     if (visible) {
         if (layer === 'permits') loadPermits();
+        if (layer === 'leases') loadLeases();
         if (layer === 'plumes') loadPlumes();
         if (layer === 'wells') loadWells();
     }
@@ -402,6 +437,7 @@ const ALL_CLICK_LAYERS = [
     'flare-pixels-layer',
     's2-points',
     'permits-layer',
+    'leases-fill',
     'plumes-layer',
     'wells-layer'
 ];
@@ -753,6 +789,7 @@ function showFeatureDetail(feature) {
         else {
             updateFlareUrl(null);
             if (layer.startsWith('permits-')) showPermitDetail(feature);
+            else if (layer.startsWith('leases-')) showLeaseDetail(feature);
             else if (layer.startsWith('plumes-')) showPlumeDetail(feature);
             else if (layer.startsWith('wells-')) showWellDetail(feature);
         }
@@ -913,9 +950,17 @@ async function showFlareDetail(feature) {
     db.queryLeases(p.flare_id).then(leases => {
         const el = $('vnf-lease-section');
         if (!el || leases.length === 0) return;
-        const names = [...new Set(leases.map(l => l.lease_name).filter(Boolean))];
-        el.innerHTML = '<div class="detail-row lease-row">' + field('Leases',
-            names.length > 0 ? names.join(', ') : `${leases.length} matched (unnamed)`) + '</div>';
+        const rows = leases.map(l => {
+            const name = l.lease_name || `${l.lease_district}-${l.lease_number}`;
+            const flared = Number(l.reported_flared_mcf) || 0;
+            return `<div class="detail-row lease-row">
+                ${field('Lease', name)}
+                ${l.lease_operator ? field('Operator', l.lease_operator) : ''}
+                ${field('Wells', num(l.well_count))}
+                ${flared > 0 ? field('Reported flared', flared.toLocaleString() + ' MCF') : ''}
+            </div>`;
+        });
+        el.innerHTML = rows.join('');
     }).catch(() => {});
 
     // Load sparkline async, then append enhance button after chart renders
@@ -966,6 +1011,50 @@ function showPermitDetail(feature) {
             </div>`
         ).join('');
         el.innerHTML = `<div class="filings-list">${filingsHtml}</div>`;
+    }).catch(() => {});
+}
+
+function showLeaseDetail(feature) {
+    const p = feature.properties;
+    const flared = Number(p.total_flared_mcf) || 0;
+    const produced = Number(p.total_gas_prod_mcf) || 0;
+    const intensity = p.flaring_intensity_pct != null ? Number(p.flaring_intensity_pct).toFixed(1) + '%' : 'N/A';
+    const name = p.lease_name || `${p.lease_district}-${p.lease_number}`;
+    // Centroid for coordinates display
+    const coords = feature.geometry.type === 'Polygon' ? feature.geometry.coordinates[0] :
+        feature.geometry.type === 'MultiPolygon' ? feature.geometry.coordinates[0][0] : [];
+    const centroid = coords.length > 0
+        ? coords.reduce((acc, c) => [acc[0] + c[0], acc[1] + c[1]], [0, 0]).map(v => v / coords.length)
+        : [0, 0];
+    openDetail(name, centroid[1], centroid[0], `
+        <div class="stats-grid">
+            <div class="stat"><div class="stat-big">${intensity}</div><div class="stat-unit">flaring intensity</div></div>
+            <div class="stat"><div class="stat-big">${num(p.well_count)}</div><div class="stat-unit">wells</div></div>
+        </div>
+        <div class="detail-row">
+            ${field('Operator', p.operator_name || 'N/A')}
+            ${field('District', p.lease_district || 'N/A')}
+            ${field('Lease no.', p.lease_number || 'N/A')}
+            ${field('Type', p.oil_gas_code === 'O' ? 'Oil' : p.oil_gas_code === 'G' ? 'Gas' : p.oil_gas_code || 'N/A')}
+            ${field('Surveys', num(p.survey_count))}
+        </div>
+        <div class="detail-row">
+            ${field('Gas flared (MCF)', flared > 0 ? flared.toLocaleString() : 'None reported')}
+            ${field('Gas produced (MCF)', produced > 0 ? produced.toLocaleString() : 'None reported')}
+        </div>
+        <div id="lease-dates-section"></div>
+    `);
+
+    // Load monthly time series for sparkline
+    db.queryLeaseMonthly(p.lease_district, p.lease_number).then(monthly => {
+        const datesEl = $('lease-dates-section');
+        if (!datesEl || monthly.length === 0) return;
+        const first = monthly[0].date, last = monthly[monthly.length - 1].date;
+        datesEl.innerHTML = '<div class="detail-row">' +
+            field('Period', `${formatDate(first)} – ${formatDate(last)}`) +
+            field('Months reported', monthly.length.toLocaleString()) +
+            '</div>';
+        renderLeaseChart(monthly);
     }).catch(() => {});
 }
 
@@ -1239,6 +1328,66 @@ function renderSparkline(detections) {
         valueKey: 'rh_mw', colorFn: mwColor, gridStyle: 'years',
         scaleFn: d => d.rh_mw > 0 ? Math.max(0, Math.min(1, (Math.log(Math.max(lo, d.rh_mw)) - logLo) / logRange)) : 0,
     });
+}
+
+function renderLeaseChart(monthly) {
+    const container = $('intensity-chart');
+    if (!monthly?.length) { container.innerHTML = ''; return; }
+
+    const M = { top: 4, right: 8, bottom: 14, left: 8 };
+    const width = container.clientWidth || 400, chartH = 80, legendH = 20;
+    const height = chartH + legendH;
+    const innerW = width - M.left - M.right;
+    const innerH = chartH - M.top - M.bottom;
+
+    const dates = monthly.map(d => new Date(d.date).getTime());
+    const minDate = Math.min(...dates), maxDate = Math.max(...dates);
+    const dateRange = maxDate - minDate || 1;
+    const xOf = t => M.left + ((t - minDate) / dateRange) * innerW;
+
+    const maxProd = Math.max(1, ...monthly.map(d => Math.max(d.produced_mcf || 0, d.flared_mcf || 0)));
+    const yOf = v => M.top + innerH - (Math.min(v, maxProd) / maxProd) * innerH;
+
+    let svg = `<svg viewBox="0 0 ${width} ${height}">`;
+    svg += `<line x1="${M.left}" y1="${chartH - M.bottom}" x2="${width - M.right}" y2="${chartH - M.bottom}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
+
+    // Year gridlines with labels
+    const firstYear = new Date(minDate).getFullYear(), lastYear = new Date(maxDate).getFullYear();
+    for (let y = firstYear; y <= lastYear; y++) {
+        const jan = new Date(y, 0, 1).getTime();
+        if (jan < minDate || jan > maxDate) continue;
+        const x = xOf(jan);
+        svg += `<line x1="${x}" y1="${M.top}" x2="${x}" y2="${chartH - M.bottom}" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>`;
+        svg += `<text x="${x}" y="${chartH - 1}" fill="rgba(255,255,255,0.3)" font-size="10" text-anchor="middle">${y}</text>`;
+    }
+
+    // Production area (filled, muted)
+    const prodPoints = monthly.map(d => {
+        const x = xOf(new Date(d.date).getTime());
+        return `${x},${yOf(d.produced_mcf || 0)}`;
+    });
+    const baseline = `${xOf(dates[dates.length - 1])},${yOf(0)} ${xOf(dates[0])},${yOf(0)}`;
+    svg += `<polygon points="${prodPoints.join(' ')} ${baseline}" fill="rgba(255,255,255,0.08)"/>`;
+    svg += `<polyline points="${prodPoints.join(' ')}" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>`;
+
+    // Flared area (filled, colored)
+    const flaredPoints = monthly.map(d => {
+        const x = xOf(new Date(d.date).getTime());
+        return `${x},${yOf(d.flared_mcf || 0)}`;
+    });
+    svg += `<polygon points="${flaredPoints.join(' ')} ${baseline}" fill="rgba(255,100,50,0.2)"/>`;
+    svg += `<polyline points="${flaredPoints.join(' ')}" fill="none" stroke="${COLORS.flare}" stroke-width="1.5"/>`;
+
+    // Legend (below chart)
+    const legendY = chartH + 14;
+    const mid = width / 2;
+    svg += `<line x1="${mid - 68}" y1="${legendY - 3}" x2="${mid - 56}" y2="${legendY - 3}" stroke="${COLORS.flare}" stroke-width="2"/>`;
+    svg += `<text x="${mid - 53}" y="${legendY}" fill="${COLORS.flare}" font-size="10">Flared</text>`;
+    svg += `<line x1="${mid + 10}" y1="${legendY - 3}" x2="${mid + 22}" y2="${legendY - 3}" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>`;
+    svg += `<text x="${mid + 25}" y="${legendY}" fill="rgba(255,255,255,0.4)" font-size="10">Produced</text>`;
+
+    svg += '</svg>';
+    container.innerHTML = svg;
 }
 
 function num(v) {
