@@ -32,42 +32,6 @@ FROM raw.permit_properties pp
 WHERE pp.property_type IN ('Oil Lease', 'Gas Lease', 'Drilling Permit')
   AND pp.property_id IS NOT NULL AND pp.property_id != '';
 
--- Well → OTLS survey spatial join
-CREATE OR REPLACE TABLE rrc.well_surveys AS
-SELECT DISTINCT
-    w.oil_gas_code, w.lease_district, w.lease_number, w.api,
-    s.abstract_n, s.abstract_l, s.survey_name, s.block, s.section
-FROM raw.wells w
-JOIN raw.surveys s ON ST_Contains(s.geom, ST_Point(w.longitude, w.latitude))
-WHERE w.latitude != 0 AND w.longitude != 0;
-
--- Lease boundaries: union of OTLS survey polygons per lease
--- Leases spanning >10km excluded as data errors
-CREATE OR REPLACE TABLE rrc.leases AS
-WITH lease_surveys AS (
-    SELECT DISTINCT ws.oil_gas_code, ws.lease_district, ws.lease_number,
-        ws.abstract_n, s.geom
-    FROM rrc.well_surveys ws
-    JOIN raw.surveys s ON s.abstract_n = ws.abstract_n
-),
-agg AS (
-    SELECT oil_gas_code, lease_district, lease_number,
-        COUNT(DISTINCT abstract_n) AS survey_count,
-        ST_Union_Agg(geom) AS geom
-    FROM lease_surveys GROUP BY 1, 2, 3
-)
-SELECT a.oil_gas_code, a.lease_district, a.lease_number,
-    a.survey_count, wc.well_count, a.geom
-FROM agg a
-JOIN (
-    SELECT oil_gas_code, lease_district, lease_number, count(*) AS well_count
-    FROM raw.wells WHERE latitude != 0 GROUP BY 1, 2, 3
-) wc USING (oil_gas_code, lease_district, lease_number)
-WHERE greatest(ST_XMax(a.geom) - ST_XMin(a.geom),
-               ST_YMax(a.geom) - ST_YMin(a.geom)) * 111 < 10;
-
-CREATE INDEX idx_leases_geom ON rrc.leases USING RTREE (geom);
-
 -- Monthly reported flaring by lease (disposition code 04 = flared/vented)
 -- Joined with actual production volumes from lease_production for proper denominator
 CREATE OR REPLACE TABLE rrc.production AS

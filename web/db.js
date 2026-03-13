@@ -19,7 +19,7 @@ async function _init() {
     await db.instantiate(mainModule);
     conn = await db.connect();
 
-    const files = ['flares', 'leases', 'permits', 'plumes', 'detections', 'wells', 'lease_footprints', 'lease_monthly'];
+    const files = ['flares', 'leases', 'permits', 'plumes', 'detections', 'wells', 'lease_monthly'];
     await Promise.all(files.map(async name => {
         const resp = await fetch(`data/${name}.parquet`);
         const buf = await resp.arrayBuffer();
@@ -211,25 +211,6 @@ export async function queryLeaseMonthly(leaseDistrict, leaseNumber) {
         ORDER BY date
     `);
     return rows(result);
-}
-
-export async function queryLeaseFootprints() {
-    const result = await query(`
-        SELECT lease_count, flaring_intensity_pct, leases, geometry
-        FROM 'lease_footprints.parquet'
-    `);
-    const data = rows(result);
-    return {
-        type: 'FeatureCollection',
-        features: data.map(r => {
-            const { geometry, ...props } = r;
-            return {
-                type: 'Feature',
-                geometry: JSON.parse(geometry),
-                properties: props
-            };
-        })
-    };
 }
 
 export async function queryPermits({ operator } = {}) {
@@ -433,15 +414,17 @@ export async function queryPlumes() {
 }
 
 export async function queryWells({ operator, bounds } = {}) {
-    let where = 'WHERE 1=1';
+    const conditions = [];
     if (bounds) {
-        where += ` AND latitude BETWEEN ${bounds.south} AND ${bounds.north}`;
-        where += ` AND longitude BETWEEN ${bounds.west} AND ${bounds.east}`;
+        conditions.push(`latitude BETWEEN ${bounds.south} AND ${bounds.north}`);
+        conditions.push(`longitude BETWEEN ${bounds.west} AND ${bounds.east}`);
     }
-    if (operator) where += ` AND lower(operator_name) LIKE '%${operator.toLowerCase().replace(/'/g, "''")}%'`;
+    if (operator) conditions.push(`lower(operator_name) LIKE '%${operator.toLowerCase().replace(/'/g, "''")}%'`);
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const result = await query(`
         SELECT api, oil_gas_code, lease_district, lease_number, well_number,
-            operator_name, latitude, longitude
+            operator_name, latitude, longitude,
+            flared_mcf, produced_mcf, flaring_intensity_pct, lease_name
         FROM 'wells.parquet'
         ${where}
     `);

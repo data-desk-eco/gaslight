@@ -142,16 +142,8 @@ SELECT
 FROM read_csv('data/plumes_imeo.csv', header=true, auto_detect=true)
 WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
 
--- OTLS survey polygons (statewide)
-CREATE OR REPLACE TABLE raw.surveys AS
-SELECT ABSTRACT_N AS abstract_n, ABSTRACT_L AS abstract_l,
-    LEVEL1_SUR AS survey_name, LEVEL2_BLO AS block, LEVEL3_SUR AS section,
-    LEFT(ABSTRACT_N, 3) AS county_fips, geom
-FROM ST_Read('data/survALLp.shp');
-
 -- Spatial indexes
 CREATE INDEX idx_wells_geom ON raw.wells USING RTREE (geom);
 CREATE INDEX idx_vnf_geom ON raw.vnf USING RTREE (geom);
 CREATE INDEX idx_flare_loc_geom ON raw.flare_locations USING RTREE (geom);
 CREATE INDEX idx_plumes_geom ON raw.plumes USING RTREE (geom);
-CREATE INDEX idx_surveys_geom ON raw.surveys USING RTREE (geom);

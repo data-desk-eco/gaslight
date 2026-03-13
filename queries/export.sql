@@ -96,74 +96,34 @@ LEFT JOIN produced p
     ON p.district = f.district
     AND LPAD(p.lease_number, 6, '0') = LPAD(f.lease_number, 6, '0');
 
--- Leases parquet (flare ↔ lease matches via OTLS boundaries)
+-- Leases parquet (flare ↔ lease matches via nearby wells within 375m)
 COPY (
+    WITH flare_leases AS (
+        SELECT DISTINCT fs.flare_id, w.oil_gas_code, w.lease_district, w.lease_number
+        FROM sites fs
+        JOIN raw.wells w
+            ON w.longitude BETWEEN fs.lon - 0.0034 AND fs.lon + 0.0034
+            AND w.latitude BETWEEN fs.lat - 0.0034 AND fs.lat + 0.0034
+            AND w.latitude != 0 AND w.longitude != 0
+        WHERE NOT fs.near_excluded_facility
+    )
     SELECT
-        sl.flare_id, sl.lease_district, sl.lease_number, sl.oil_gas_code, sl.well_count,
+        fl.flare_id, fl.lease_district, fl.lease_number, fl.oil_gas_code,
+        COALESCE(wc.well_count, 0) AS well_count,
         round(COALESCE(lp.total_flared_mcf, 0), 0) AS reported_flared_mcf,
         lp.operator_name AS lease_operator, lp.lease_name
-    FROM (
-        SELECT fs.flare_id, ll.lease_district, ll.lease_number, ll.oil_gas_code, ll.well_count
-        FROM sites fs
-        JOIN rrc.leases ll
-            ON fs.lon BETWEEN ST_XMin(ll.geom) AND ST_XMax(ll.geom)
-            AND fs.lat BETWEEN ST_YMin(ll.geom) AND ST_YMax(ll.geom)
-            AND ST_Contains(ll.geom, fs.geom)
-        WHERE NOT fs.near_excluded_facility
-    ) sl
+    FROM flare_leases fl
+    LEFT JOIN (
+        SELECT oil_gas_code, lease_district, lease_number, count(*) AS well_count
+        FROM raw.wells WHERE latitude != 0 GROUP BY 1, 2, 3
+    ) wc USING (oil_gas_code, lease_district, lease_number)
     LEFT JOIN lease_production lp
-        ON lp.district = sl.lease_district
-        AND LPAD(lp.lease_number, 6, '0') = LPAD(sl.lease_number, 6, '0')
+        ON lp.district = fl.lease_district
+        AND LPAD(lp.lease_number, 6, '0') = LPAD(fl.lease_number, 6, '0')
 ) TO 'web/data/leases.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- Lease footprints parquet (merged by surface area to avoid opacity stacking)
--- Vertically stacked leases share the same OTLS survey abstracts but have different
--- lease numbers (depth intervals). Group by (district, abstract set) to flatten them
--- into one polygon per unique surface area, averaging flaring intensity across stacks.
-COPY (
-    WITH lease_abstracts AS (
-        SELECT ws.lease_district, ws.lease_number,
-            list(DISTINCT ws.abstract_n ORDER BY ws.abstract_n) AS abstracts
-        FROM rrc.well_surveys ws
-        GROUP BY 1, 2
-    ),
-    surface_groups AS (
-        SELECT la.lease_district, la.abstracts,
-            ST_Union_Agg(l.geom) AS geom,
-            COUNT(*) AS lease_count,
-            SUM(lp.total_flared_mcf) AS total_flared,
-            SUM(lp.total_gas_prod_mcf) AS total_produced,
-            list({
-                d: la.lease_district,
-                n: la.lease_number,
-                name: lp.lease_name,
-                op: lp.operator_name,
-                wells: l.well_count,
-                flared: round(lp.total_flared_mcf, 0)::INT,
-                produced: round(lp.total_gas_prod_mcf, 0)::INT
-            } ORDER BY lp.total_flared_mcf DESC) AS leases
-        FROM lease_abstracts la
-        JOIN rrc.leases l
-            ON l.lease_district = la.lease_district
-            AND l.lease_number = la.lease_number
-        JOIN lease_production lp
-            ON lp.district = la.lease_district
-            AND LPAD(lp.lease_number, 6, '0') = LPAD(la.lease_number, 6, '0')
-        WHERE la.lease_district IN ('6E','7B','7C','08','8A')
-            AND lp.total_flared_mcf > 0
-        GROUP BY la.lease_district, la.abstracts
-    )
-    SELECT lease_count,
-        CASE WHEN total_produced > 0
-             THEN round(100.0 * total_flared / total_produced, 1)
-             ELSE NULL END AS flaring_intensity_pct,
-        to_json(leases)::VARCHAR AS leases,
-        ST_AsGeoJSON(ST_Simplify(geom, 0.001)) AS geometry
-    FROM surface_groups
-) TO 'web/data/lease_footprints.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
-
--- Lease monthly production time series (for sparklines in lease detail)
--- Only for leases that appear in lease_footprints (have flaring), filtered to start_date+
+-- Lease monthly production time series (for sparklines in well detail cards)
+-- Only for leases with reported flaring, filtered to start_date+
 COPY (
     SELECT
         p.district AS lease_district, p.lease_number,
@@ -212,13 +172,22 @@ COPY (
     WHERE in_permian(latitude, longitude)
 ) TO 'web/data/plumes.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- Wells parquet
+-- Wells parquet (with per-lease flaring metrics)
 COPY (
     SELECT w.api, w.oil_gas_code, w.lease_district, w.lease_number, w.well_number,
         COALESCE(o.operator_name, 'Unknown') AS operator_name,
-        w.latitude, w.longitude
+        w.latitude, w.longitude,
+        round(COALESCE(lp.total_flared_mcf, 0), 0) AS flared_mcf,
+        round(COALESCE(lp.total_gas_prod_mcf, 0), 0) AS produced_mcf,
+        CASE WHEN lp.total_gas_prod_mcf > 0
+             THEN round(100.0 * lp.total_flared_mcf / lp.total_gas_prod_mcf, 1)
+             ELSE NULL END AS flaring_intensity_pct,
+        lp.lease_name
     FROM raw.wells w
     LEFT JOIN raw.operators o ON o.operator_number = w.operator_no
+    LEFT JOIN lease_production lp
+        ON lp.district = w.lease_district
+        AND LPAD(lp.lease_number, 6, '0') = LPAD(w.lease_number, 6, '0')
     WHERE w.latitude != 0 AND w.longitude != 0
         AND in_permian(w.latitude, w.longitude)
 ) TO 'web/data/wells.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);

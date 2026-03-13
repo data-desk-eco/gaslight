@@ -11,7 +11,6 @@ const COLORS = {
     permit: _css('--color-permit'),
     plume: _css('--color-plume'),
     well: _css('--color-well'),
-    lease: _css('--color-lease'),
 };
 
 // Geo constants
@@ -41,7 +40,7 @@ function openDetail(title, lat, lon, bodyHtml) {
     $('detail-panel').classList.remove('hidden');
 }
 
-let layerState = { flares: true, permits: true, leases: false, plumes: false, wells: false };
+let layerState = { flares: true, permits: true, plumes: false, wells: false };
 let operatorFilter = '';
 let overlappingFeatures = [];
 let overlapIndex = 0;
@@ -133,13 +132,29 @@ map.on('load', async () => {
 function addEmptySources() {
     const empty = { type: 'FeatureCollection', features: [] };
     map.addSource('texas', { type: 'geojson', data: 'data/texas.geojson' });
-    map.addSource('leases', { type: 'geojson', data: empty });
     map.addSource('flares', { type: 'geojson', data: empty });
     map.addSource('permits', { type: 'geojson', data: empty });
     map.addSource('plumes', { type: 'geojson', data: empty });
     map.addSource('wells', { type: 'geojson', data: empty });
     map.addSource('flare-pixels', { type: 'geojson', data: empty });
     map.addSource('s2-detections', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+}
+
+function addWellImage() {
+    const size = 24;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(4, 4); ctx.lineTo(size - 4, size - 4);
+    ctx.moveTo(size - 4, 4); ctx.lineTo(4, size - 4);
+    ctx.stroke();
+    const imgData = ctx.getImageData(0, 0, size, size);
+    map.addImage('well-x', { width: size, height: size, data: imgData.data }, { sdf: true });
 }
 
 function addLayers() {
@@ -162,40 +177,38 @@ function addLayers() {
         0, 1.5, 100, 2, 1000, 3.5, 5000, 6, 25000, 10, 100000, 16
     ];
 
-    // Lease footprint fill: colored by flaring intensity (% of gas flared)
-    const intensityColor = [
-        'interpolate', ['linear'],
+    // Wells: fixed-size X markers, visible at z10+
+    // Color by combined score: sqrt(intensity% × ln(1 + flared_mcf))
+    // Weights both how wasteful (intensity) and how much gas (volume)
+    addWellImage();
+    const wellScore = ['sqrt', ['*',
         ['coalesce', ['get', 'flaring_intensity_pct'], 0],
-        0, 'rgba(68, 204, 136, 0.25)',   // green — low intensity
-        2, 'rgba(255, 204, 68, 0.3)',     // yellow — moderate
-        5, 'rgba(255, 136, 68, 0.35)',    // orange — high
-        10, 'rgba(255, 68, 68, 0.4)',     // red — very high
-        25, 'rgba(200, 40, 40, 0.45)'     // dark red — extreme
+        ['ln', ['+', 1, ['coalesce', ['get', 'flared_mcf'], 0]]]
+    ]];
+    const wellColor = [
+        'interpolate', ['linear'], wellScore,
+        0, '#555566',
+        1, '#660800',
+        4, '#991100',
+        8, '#cc2200',
+        12, '#ff4422',
+        16, '#ff8844',
+        22, '#ffcc44',
+        30, '#ffeeaa'
     ];
     map.addLayer({
-        id: 'leases-fill', type: 'fill', source: 'leases',
-        layout: { visibility: 'none' },
-        paint: { 'fill-color': intensityColor }
-    });
-    map.addLayer({
-        id: 'leases-outline', type: 'line', source: 'leases',
-        layout: { visibility: 'none' },
+        id: 'wells-layer', type: 'symbol', source: 'wells',
+        minzoom: 10,
+        layout: {
+            visibility: 'none',
+            'icon-image': 'well-x',
+            'icon-size': 0.4,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
         paint: {
-            'line-color': COLORS.lease,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 12, 1.5],
-            'line-opacity': 0.6
-        }
-    });
-
-    map.addLayer({
-        id: 'wells-layer', type: 'circle', source: 'wells',
-        layout: { visibility: 'none' },
-        paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 1.5, 10, 3, 14, 5],
-            'circle-color': COLORS.well,
-            'circle-opacity': 0.25,
-            'circle-stroke-width': 1,
-            'circle-stroke-color': COLORS.well
+            'icon-color': wellColor,
+            'icon-opacity': 0.85,
         }
     });
 
@@ -360,35 +373,18 @@ async function loadPlumes() {
     drawer.setData('plumes', data.features);
 }
 
-async function loadLeases() {
-    if (!layerState.leases) return;
-    const data = await db.queryLeaseFootprints();
-    map.getSource('leases').setData(data);
-    // Flatten properties for the drawer table
-    const drawerFeatures = data.features.map(f => {
-        const leases = JSON.parse(f.properties.leases);
-        const totalFlared = leases.reduce((s, l) => s + (l.flared || 0), 0);
-        const totalProduced = leases.reduce((s, l) => s + (l.produced || 0), 0);
-        // Centroid from exterior ring
-        const coords = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] :
-            f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates[0][0] : [];
-        const [lonSum, latSum] = coords.reduce((a, c) => [a[0] + c[0], a[1] + c[1]], [0, 0]);
-        const n = coords.length || 1;
-        return { properties: {
-            operator: leases[0]?.op || 'N/A',
-            leases: leases.length,
-            flared_mcf: Math.round(totalFlared),
-            produced_mcf: Math.round(totalProduced),
-            intensity_pct: totalProduced > 0 ? Math.round(1000 * totalFlared / totalProduced) / 10 : null,
-            lat: Math.round(latSum / n * 10000) / 10000,
-            lon: Math.round(lonSum / n * 10000) / 10000,
-        }};
-    });
-    drawer.setData('leases', drawerFeatures);
+const WELLS_MIN_ZOOM = 10;
+
+function updateWellsToggle() {
+    const row = document.querySelector('.toggle-row[data-layer="wells"]');
+    if (!row) return;
+    const tooFar = map.getZoom() < WELLS_MIN_ZOOM;
+    row.classList.toggle('disabled', tooFar);
+    row.querySelector('input').disabled = tooFar;
 }
 
 async function loadWells() {
-    if (!layerState.wells) return;
+    if (!layerState.wells || map.getZoom() < WELLS_MIN_ZOOM) return;
     const b = map.getBounds();
     const bounds = { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() };
     const data = await db.queryWells({ operator: operatorFilter || undefined, bounds });
@@ -433,7 +429,6 @@ function updateStats() {
 const LAYER_MAP = {
     flares: ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer', 'flare-pixels-label', 's2-points'],
     permits: ['permits-layer'],
-    leases: ['leases-fill', 'leases-outline'],
     plumes: ['plumes-layer'],
     wells: ['wells-layer']
 };
@@ -446,7 +441,6 @@ function setLayerVisibility(layer, visible) {
     }
     if (visible) {
         if (layer === 'permits') loadPermits();
-        if (layer === 'leases') loadLeases();
         if (layer === 'plumes') loadPlumes();
         if (layer === 'wells') loadWells();
     }
@@ -458,7 +452,6 @@ const ALL_CLICK_LAYERS = [
     'flare-pixels-layer',
     's2-points',
     'permits-layer',
-    'leases-fill',
     'plumes-layer',
     'wells-layer'
 ];
@@ -587,6 +580,7 @@ function bindUI() {
     map.on('move', updateMapCentre);
     map.on('moveend', () => {
         updateStats();
+        updateWellsToggle();
         loadWells();
     });
 }
@@ -810,7 +804,6 @@ function showFeatureDetail(feature) {
         else {
             updateFlareUrl(null);
             if (layer.startsWith('permits-')) showPermitDetail(feature);
-            else if (layer.startsWith('leases-')) showLeaseDetail(feature);
             else if (layer.startsWith('plumes-')) showPlumeDetail(feature);
             else if (layer.startsWith('wells-')) showWellDetail(feature);
         }
@@ -1035,52 +1028,6 @@ function showPermitDetail(feature) {
     }).catch(() => {});
 }
 
-function showLeaseDetail(feature) {
-    const p = feature.properties;
-    const leases = JSON.parse(p.leases);
-    const leaseCount = leases.length;
-    const title = leaseCount > 1 ? `${leaseCount} stacked leases` : (leases[0].name || `${leases[0].d}-${leases[0].n}`);
-    const coords = feature.geometry.type === 'Polygon' ? feature.geometry.coordinates[0] :
-        feature.geometry.type === 'MultiPolygon' ? feature.geometry.coordinates[0][0] : [];
-    const centroid = coords.length > 0
-        ? coords.reduce((acc, c) => [acc[0] + c[0], acc[1] + c[1]], [0, 0]).map(v => v / coords.length)
-        : [0, 0];
-
-    const leaseCards = leases.map((l, i) => {
-        const flared = Number(l.flared) || 0;
-        const produced = Number(l.produced) || 0;
-        const intensity = produced > 0 ? (100 * flared / produced).toFixed(1) + '%' : 'N/A';
-        const name = l.name || `${l.d}-${l.n}`;
-        return `
-            <div class="lease-card">
-                <div class="lease-card-header">${name}</div>
-                <div class="detail-row">
-                    ${field('Operator', l.op || 'N/A')}
-                    ${field('District', l.d)}
-                    ${field('Lease no.', l.n)}
-                    ${field('Wells', num(l.wells))}
-                </div>
-                <div class="detail-row">
-                    ${field('Gas flared (MCF)', flared > 0 ? flared.toLocaleString() : 'None reported')}
-                    ${field('Gas produced (MCF)', produced > 0 ? produced.toLocaleString() : 'None reported')}
-                    ${field('Flaring intensity', intensity)}
-                </div>
-                <div id="lease-chart-${i}" class="intensity-chart"></div>
-            </div>`;
-    }).join('');
-
-    openDetail(title, centroid[1], centroid[0], leaseCards);
-
-    // Load monthly charts for each lease
-    leases.forEach((l, i) => {
-        db.queryLeaseMonthly(l.d, l.n).then(monthly => {
-            const el = document.getElementById(`lease-chart-${i}`);
-            if (!el || monthly.length === 0) return;
-            renderLeaseChartIn(el, monthly);
-        }).catch(() => {});
-    });
-}
-
 function plumeUrl(source, id) {
     if (source === 'cm') return `https://data.carbonmapper.org/?plume_id=${encodeURIComponent(id)}`;
     if (source === 'imeo') return `https://methanedata.unep.org`;
@@ -1107,15 +1054,39 @@ function showPlumeDetail(feature) {
 
 function showWellDetail(feature) {
     const p = feature.properties;
+    const flared = Number(p.flared_mcf) || 0;
+    const produced = Number(p.produced_mcf) || 0;
+    const intensity = p.flaring_intensity_pct != null ? Number(p.flaring_intensity_pct).toFixed(1) + '%' : 'N/A';
+    const leaseId = p.lease_district && p.lease_number ? `${p.lease_district}-${p.lease_number}` : null;
+    const leaseName = p.lease_name || leaseId;
+    const hasLease = leaseId != null;
+
     openDetail(`Well ${p.api}`, p.latitude, p.longitude, `
         <div class="detail-row">
             ${field('Operator', p.operator_name || 'N/A')}
             ${field('Type', p.oil_gas_code === 'O' ? 'Oil' : p.oil_gas_code === 'G' ? 'Gas' : p.oil_gas_code || 'N/A')}
             ${field('District', p.lease_district || 'N/A')}
-            ${field('Lease', p.lease_number || 'N/A')}
             ${field('Well #', p.well_number || 'N/A')}
         </div>
+        ${hasLease ? `
+        <div class="well-lease-section">
+            <div class="well-lease-header">Lease ${leaseName}</div>
+            <div class="detail-row">
+                ${field('Gas flared (MCF)', flared > 0 ? flared.toLocaleString() : 'None reported')}
+                ${field('Gas produced (MCF)', produced > 0 ? produced.toLocaleString() : 'None reported')}
+                ${field('Flaring intensity', intensity)}
+            </div>
+            <div id="well-lease-chart" class="intensity-chart"></div>
+        </div>` : ''}
     `);
+
+    if (hasLease) {
+        db.queryLeaseMonthly(p.lease_district, p.lease_number).then(monthly => {
+            const el = document.getElementById('well-lease-chart');
+            if (!el || monthly.length === 0) return;
+            renderLeaseChartIn(el, monthly);
+        }).catch(() => {});
+    }
 }
 
 
@@ -1406,10 +1377,6 @@ function renderLeaseChartIn(container, monthly) {
 
     svg += '</svg>';
     container.innerHTML = svg;
-}
-
-function renderLeaseChart(monthly) {
-    renderLeaseChartIn($('intensity-chart'), monthly);
 }
 
 function num(v) {
