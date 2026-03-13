@@ -377,7 +377,7 @@ function updateStats() {
 }
 
 const LAYER_MAP = {
-    flares: ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer', 'flare-pixels-label'],
+    flares: ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer', 'flare-pixels-label', 's2-points'],
     permits: ['permits-layer'],
     plumes: ['plumes-layer'],
     wells: ['wells-layer']
