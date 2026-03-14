@@ -8,7 +8,7 @@ Flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite flare 
 - `scripts/scrape_permit_details.py` — downloads permit detail HTML pages
 - `scripts/parse_permit_details.py` — parses HTML to CSVs (permit_details, permit_properties, flare_locations)
 - `scripts/download_rrc.py` — downloads EBCDIC files from RRC MFT (Playwright)
-- `scripts/parse_rrc.py` — parses EBCDIC to `wells.csv` + `operators.csv` (Permian districts 6E/7B/7C/08/8A)
+- `scripts/parse_rrc.py` — parses EBCDIC to `wells.csv` + `operators.csv` + `gatherers.csv` (Permian districts 6E/7B/7C/08/8A)
 - `scripts/fetch_vnf.py` — fetches VNF profiles from EOG
 - `scripts/fetch_plumes.py` — fetches Carbon Mapper + IMEO methane plume data
 - `scripts/fetch_r3.py` — fetches RRC R-3 gas processing facility locations
@@ -56,6 +56,7 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 - **EBCDIC districts**: numeric codes mapped to alphanumeric via `rrc.district_map` (08→7B, 09→7C, 10→08, 11→8A)
 - **Permits**: `rrc.permits` merges raw filings + detail pages with parsed dates, eliminating repeated COALESCE patterns downstream.
 - **Well flaring**: `wells.parquet` includes per-lease flaring metrics (`flared_mcf`, `produced_mcf`, `flaring_intensity_pct`) joined from PDQ production data. Wells rendered as X markers (SDF symbol layer, z10+ only) colored by a combined score `sqrt(intensity% × ln(1 + flared_mcf))` on the same dark-red→white-hot ramp as flare sites. Well detail cards show a lease section with flaring stats and monthly production charts.
+- **Gatherers/Purchasers**: `gatherers.parquet` from P-4 EBCDIC type 03 records (P4GPN segment). Links each lease to its gatherers, purchasers, and nominators via P-5 org numbers. Shown in well detail cards under the lease section, with current entities displayed prominently and historical ones collapsed.
 - **IMEO source**: `data/imeo_plumes.geojson` — manual download from methanedata.unep.org (no API).
 - **Permit coverage**: `rrc.permit_leases` maps each SWR 32 filing to its underlying leases.
 - **Permian bbox**: 30–33.5°N, 100–104.5°W (applied at export time via `in_permian()` macro). Texas-only: sites above 32°N must be east of -103.064° (TX-NM border) to exclude New Mexico.

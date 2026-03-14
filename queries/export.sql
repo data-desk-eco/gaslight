@@ -184,6 +184,23 @@ COPY (
         AND in_permian(w.latitude, w.longitude)
 ) TO 'web/data/wells.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
+-- Gatherer/purchaser/nominator parquet (deduplicated per lease×type×name×current)
+COPY (
+    SELECT
+        g.oil_gas_code, g.district, LPAD(g.lease_rrcid::VARCHAR, 6, '0') AS lease_number,
+        CASE g.type_code WHEN 'G' THEN 'Gatherer' WHEN 'H' THEN 'Purchaser' WHEN 'I' THEN 'Nominator' ELSE g.type_code END AS type,
+        MAX(round(g.percentage * 100, 2)) AS percentage,
+        g.gpn_number,
+        COALESCE(o.operator_name, 'Unknown (' || g.gpn_number || ')') AS gpn_name,
+        g.is_current::VARCHAR AS is_current,
+        MIN(NULLIF(g.effective_date, '')) AS first_date,
+        MAX(NULLIF(g.effective_date, '')) AS last_date
+    FROM raw.gatherers g
+    LEFT JOIN raw.operators o ON LPAD(o.operator_number::VARCHAR, 6, '0') = LPAD(g.gpn_number, 6, '0')
+    WHERE g.district IN ('6E','7B','7C','08','8A')
+    GROUP BY g.oil_gas_code, g.district, g.lease_rrcid, g.type_code, g.gpn_number, o.operator_name, g.is_current
+) TO 'web/data/gatherers.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
 -- R-3 gas processing facilities parquet
 COPY (
     SELECT serial_number, facility_name, plant_type, latitude, longitude

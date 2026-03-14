@@ -1169,6 +1169,10 @@ function showWellDetail(feature) {
                 ${field('Flaring intensity', intensity)}
             </div>
             <div id="well-lease-chart" class="intensity-chart"></div>
+            <div class="well-gatherers-section">
+                <div class="well-lease-header">Gatherers & Purchasers</div>
+                <div id="well-gatherers" class="gatherer-list loading-placeholder">Loading…</div>
+            </div>
         </div>` : ''}
     `);
 
@@ -1177,6 +1181,34 @@ function showWellDetail(feature) {
             const el = document.getElementById('well-lease-chart');
             if (!el || monthly.length === 0) return;
             renderLeaseChartIn(el, monthly);
+        }).catch(() => {});
+
+        db.queryGatherers(p.lease_district, p.lease_number).then(rows => {
+            const el = document.getElementById('well-gatherers');
+            if (!el || rows.length === 0) {
+                if (el) el.innerHTML = '<span class="dim">No records</span>';
+                return;
+            }
+            const current = rows.filter(r => r.is_current === '1');
+            const currentKeys = new Set(current.map(r => r.type + '|' + r.gpn_name));
+            const historical = rows.filter(r => r.is_current !== '1' && !currentKeys.has(r.type + '|' + r.gpn_name));
+            const fmtDate = d => d ? d.slice(0, 7) : '';  // YYYY-MM
+            const renderRows = (list) => list.map(r => {
+                const parts = [r.type];
+                if (r.percentage) parts.push(r.percentage + '%');
+                if (r.first_date) {
+                    const from = fmtDate(r.first_date);
+                    const to = fmtDate(r.last_date);
+                    parts.push(from === to || !to ? from : `${from} – ${to}`);
+                }
+                return `<div class="gatherer-row">
+                    <span class="gatherer-name">${r.gpn_name}</span>
+                    <span class="gatherer-meta">${parts.join(' · ')}</span>
+                </div>`;
+            }).join('');
+            el.innerHTML =
+                (current.length ? renderRows(current) : '<div class="gatherer-row dim">None active</div>') +
+                (historical.length ? `<details class="gatherer-history"><summary>${historical.length} historical</summary>${renderRows(historical)}</details>` : '');
         }).catch(() => {});
     }
 }

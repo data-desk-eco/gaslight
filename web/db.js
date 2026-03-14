@@ -470,6 +470,20 @@ export async function queryNearbyFacilities(lat, lon, radiusKm = 5) {
     return rows(result);
 }
 
+export async function queryGatherers(leaseDistrict, leaseNumber) {
+    await need('gatherers');
+    const ld = leaseDistrict.replace(/'/g, "''");
+    const ln = String(leaseNumber).replace(/'/g, "''");
+    const result = await query(`
+        SELECT type, gpn_name, percentage, is_current, first_date, last_date
+        FROM 'gatherers.parquet'
+        WHERE district = '${ld}'
+          AND lease_number = LPAD('${ln}', 6, '0')
+        ORDER BY is_current DESC, type, percentage DESC
+    `);
+    return rows(result);
+}
+
 export async function queryWells({ operator, bounds } = {}) {
     await need('wells');
     const conditions = [];
