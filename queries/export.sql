@@ -13,17 +13,11 @@ CREATE OR REPLACE MACRO in_permian(lat, lon) AS
     AND lon BETWEEN getvariable('lon_min') AND getvariable('lon_max')
     AND (lat <= 32.0 OR lon >= getvariable('nm_border_lon'));
 
--- VNF flare sites (one row per site, Permian bbox, exclusion flag)
+-- VNF flare sites (one row per site, Permian bbox)
 CREATE OR REPLACE TEMP TABLE sites AS
 SELECT
     f.flare_id, f.lat, f.lon, f.geom,
-    f.first_detected, f.last_detected, f.detection_days,
-    EXISTS (
-        SELECT 1 FROM raw.excluded_facilities ef
-        WHERE ef.geom IS NOT NULL
-          AND ef.longitude BETWEEN f.lon - 0.015 AND f.lon + 0.015
-          AND ef.latitude  BETWEEN f.lat - 0.015 AND f.lat + 0.015
-    ) AS near_excluded_facility
+    f.first_detected, f.last_detected, f.detection_days
 FROM (
     SELECT flare_id,
         AVG(lat) AS lat, AVG(lon) AS lon,
@@ -41,7 +35,6 @@ COPY (
         fs.flare_id, fs.lat, fs.lon, fs.detection_days,
         CAST(fs.first_detected AS VARCHAR) AS first_detected,
         CAST(fs.last_detected AS VARCHAR) AS last_detected,
-        fs.near_excluded_facility,
         round(d.total_rh_mw, 1) AS total_rh_mw,
         round(d.avg_rh_mw, 2) AS avg_rh_mw
     FROM sites fs
@@ -105,7 +98,6 @@ COPY (
             ON w.longitude BETWEEN fs.lon - 0.0034 AND fs.lon + 0.0034
             AND w.latitude BETWEEN fs.lat - 0.0034 AND fs.lat + 0.0034
             AND w.latitude != 0 AND w.longitude != 0
-        WHERE NOT fs.near_excluded_facility
     )
     SELECT
         fl.flare_id, fl.lease_district, fl.lease_number, fl.oil_gas_code,
@@ -191,3 +183,10 @@ COPY (
     WHERE w.latitude != 0 AND w.longitude != 0
         AND in_permian(w.latitude, w.longitude)
 ) TO 'web/data/wells.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
+-- R-3 gas processing facilities parquet
+COPY (
+    SELECT serial_number, facility_name, plant_type, latitude, longitude
+    FROM raw.excluded_facilities
+    WHERE in_permian(latitude, longitude)
+) TO 'web/data/facilities.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);

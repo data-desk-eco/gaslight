@@ -88,8 +88,8 @@ const map = new maplibregl.Map({
     },
     center: [-102.5, 31.8],
     zoom: 7,
-    minZoom: 5,
-    maxBounds: [[-110, 26], [-95, 37]],
+    minZoom: 7,
+    maxBounds: [[-107, 29], [-98, 35]],
     projection: 'globe',
     hash: 'map'
 });
@@ -254,14 +254,12 @@ function addLayers() {
     // VIIRS M-band pixel footprint (750m square) — invisible fill for click target
     map.addLayer({
         id: 'flare-pixels-fill', type: 'fill', source: 'flare-pixels',
-        filter: ['!=', ['get', 'near_excluded_facility'], true],
         paint: { 'fill-color': 'transparent' }
     });
 
     // Dashed outline
     map.addLayer({
         id: 'flare-pixels-layer', type: 'line', source: 'flare-pixels',
-        filter: ['!=', ['get', 'near_excluded_facility'], true],
         paint: {
             'line-color': 'rgba(255,255,255,0.8)',
             'line-width': 1,
@@ -273,7 +271,6 @@ function addLayers() {
     map.addSource('flare-pixel-labels', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({
         id: 'flare-pixels-label', type: 'symbol', source: 'flare-pixel-labels',
-        filter: ['!=', ['get', 'near_excluded_facility'], true],
         layout: {
             'text-field': 'FLARE DETECTION AREA',
             'text-font': ['Noto Sans Regular'],
@@ -291,7 +288,6 @@ function addLayers() {
 
     map.addLayer({
         id: 'flares-layer', type: 'circle', source: 'flares',
-        filter: ['!=', ['get', 'near_excluded_facility'], true],
         paint: {
             'circle-radius': flareRadius,
             'circle-color': flareColorRamp,
@@ -923,12 +919,6 @@ function field(label, value) {
     return `<div class="detail-field"><span class="detail-field-label">${label}</span><span class="detail-field-value">${value}</span></div>`;
 }
 
-function flareStatus(p) {
-    const isExcluded = p.near_excluded_facility === true || p.near_excluded_facility === 'true';
-    if (isExcluded) return { status: 'excluded', label: 'Excluded' };
-    return { status: null, label: null };
-}
-
 // Merge overlapping/adjacent date ranges into a sorted list of non-overlapping intervals
 function mergeRanges(filings) {
     const ranges = filings
@@ -1022,7 +1012,6 @@ function permitCoverageHtml(info, coverage, firstDetected, lastDetected) {
 
 async function showFlareDetail(feature) {
     const p = feature.properties;
-    const { status, label: statusLabel } = flareStatus(p);
     updateFlareUrl(p.flare_id);
 
     openDetail(`Flare ${p.flare_id}`, p.lat, p.lon, `
@@ -1033,23 +1022,34 @@ async function showFlareDetail(feature) {
         <div id="vnf-operator-section"></div>
         <div id="vnf-lease-section"></div>
     `);
-    if (status) {
-        const badge = $('detail-badge');
-        badge.className = `status-badge ${status}`;
-        badge.textContent = statusLabel;
-        badge.classList.remove('hidden');
-    }
 
-    // Operator attribution + permit coverage (async, parallel)
+    // Operator attribution: facility match takes precedence over well/permit attribution
     Promise.all([
+        db.queryNearbyFacilities(Number(p.lat), Number(p.lon)),
         db.queryOperator(p.flare_id, Number(p.lat), Number(p.lon)),
         db.queryPermitFilings(Number(p.lat), Number(p.lon)),
-    ]).then(([op, filings]) => {
-        const el = $('vnf-operator-section');
-        if (!el) return;
-        const info = operatorInfo(op);
-        const coverage = computeCoverage(filings, p.first_detected, p.last_detected);
-        el.innerHTML = permitCoverageHtml(info, coverage, p.first_detected, p.last_detected);
+    ]).then(([facs, op, filings]) => {
+        const opEl = $('vnf-operator-section');
+        if (!opEl) return;
+
+        if (facs.length > 0) {
+            // Facility is the likely source — show facility info instead of operator
+            const f = facs[0];
+            opEl.innerHTML = `
+                <div class="detail-row">
+                    ${field('Facility', f.facility_name)}
+                    ${field('Distance', (f.distance_km * 1000).toFixed(0) + 'm')}
+                </div>
+                <div class="detail-row">
+                    ${field('First detected', formatDate(p.first_detected))}
+                    ${field('Last detected', formatDate(p.last_detected))}
+                </div>
+            `;
+        } else {
+            const info = operatorInfo(op);
+            const coverage = computeCoverage(filings, p.first_detected, p.last_detected);
+            opEl.innerHTML = permitCoverageHtml(info, coverage, p.first_detected, p.last_detected);
+        }
     }).catch(() => {});
 
     // Leases (async)
@@ -1317,18 +1317,34 @@ function showS2ClusterDetail(cluster) {
         renderS2Chart(cluster.detections);
     }
 
-    // Operator attribution — find nearest flare's operator, or do spatial lookup
+    // Operator attribution — facility match takes precedence
     const dates = (cluster.detections || []).map(d => d.date).filter(Boolean).sort();
     const firstDate = dates[0] || null, lastDate = dates[dates.length - 1] || null;
     Promise.all([
+        db.queryNearbyFacilities(cluster.lat, cluster.lon),
         db.queryOperatorByLocation(cluster.lat, cluster.lon),
         db.queryPermitFilings(cluster.lat, cluster.lon),
-    ]).then(([op, filings]) => {
+    ]).then(([facs, op, filings]) => {
         const el = $('s2-permit-section');
         if (!el) return;
-        const info = operatorInfo(op);
-        const coverage = computeCoverage(filings, firstDate, lastDate);
-        el.innerHTML = permitCoverageHtml(info, coverage, firstDate, lastDate);
+        if (facs.length > 0) {
+            const f = facs[0];
+            el.innerHTML = `
+                <div class="detail-row">
+                    ${field('Facility', f.facility_name)}
+                    ${field('Type', f.plant_type)}
+                    ${field('Distance', (f.distance_km * 1000).toFixed(0) + 'm')}
+                </div>
+                <div class="detail-row">
+                    ${firstDate ? field('First detected', formatDate(firstDate)) : ''}
+                    ${lastDate ? field('Last detected', formatDate(lastDate)) : ''}
+                </div>
+            `;
+        } else {
+            const info = operatorInfo(op);
+            const coverage = computeCoverage(filings, firstDate, lastDate);
+            el.innerHTML = permitCoverageHtml(info, coverage, firstDate, lastDate);
+        }
     }).catch(() => {});
 
     panel.classList.remove('hidden');
