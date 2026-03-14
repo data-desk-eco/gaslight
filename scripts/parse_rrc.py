@@ -37,26 +37,85 @@ def signed_decimal(data: bytes, decimal_places: int) -> float | None:
     return -result if negative else result
 
 
-def parse_p4(gz_path: Path) -> dict:
-    """Parse P-4 Schedule EBCDIC -> dict of (og, district, lease_rrcid) -> operator_no.
+def parse_p4(gz_path: Path, out_dir: Path) -> dict:
+    """Parse P-4 Schedule EBCDIC -> operator dict + gatherers.csv.
 
     P-4 root records (type 01, 92 bytes) contain the CURRENT operator for each lease.
     This is more accurate than the wellbore file which has the drilling-era operator.
+
+    Type 03 records (P4GPN, 92 bytes) contain gatherer/purchaser/nominator info,
+    keyed to the parent type 01 lease context.
     """
     operators = {}
-    count = 0
+    gatherers = []
+    op_count = 0
+    gpn_count = 0
+    # Current lease context from most recent type 01 record
+    cur_og = cur_district = cur_lease = None
+    # Current P-4 filing context from most recent type 02 record
+    cur_effective_date = ""
+
     with gzip.open(gz_path, "rb") as f:
         while (rec := f.read(P4_RECLEN)) and len(rec) == P4_RECLEN:
-            if rec[0:2].decode("cp500") != "01":
-                continue
-            og = rec[2:3].decode("cp500").strip()
-            district = ebcdic_int(rec[3:5])
-            lease_rrcid = ebcdic_int(rec[5:11])
-            operator_no = ebcdic_int(rec[20:26])
-            if og and district is not None and lease_rrcid and operator_no:
-                operators[(og, district, lease_rrcid)] = f"{operator_no:06d}"
-                count += 1
-    print(f"Parsed {count} P-4 lease operators")
+            rtype = rec[0:2].decode("cp500")
+
+            if rtype == "01":
+                cur_og = rec[2:3].decode("cp500").strip()
+                cur_district = ebcdic_int(rec[3:5])
+                cur_lease = ebcdic_int(rec[5:11])
+                cur_effective_date = ""
+                operator_no = ebcdic_int(rec[20:26])
+                if cur_og and cur_district is not None and cur_lease and operator_no:
+                    operators[(cur_og, cur_district, cur_lease)] = f"{operator_no:06d}"
+                    op_count += 1
+
+            elif rtype == "02":
+                # P4INFO — effective date at bytes 18-26 (CCYYMMDD)
+                raw_date = ebcdic(rec[18:26])
+                if raw_date and raw_date != "00000000" and len(raw_date) == 8:
+                    cur_effective_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+                else:
+                    cur_effective_date = ""
+
+            elif rtype == "03" and cur_og and cur_district is not None and cur_lease:
+                # P4GPN record — gatherer/purchaser/nominator
+                product_code = rec[2:3].decode("cp500").strip()
+                type_code = rec[3:4].decode("cp500").strip()
+                # percentage: PIC 9(1)V9(4) at bytes 4-8 (zoned decimal, 4 decimal places)
+                pct_raw = ebcdic_int(rec[4:9])
+                percentage = pct_raw / 10000.0 if pct_raw is not None else None
+                gpn_number = ebcdic(rec[9:15])
+                purch_system_no = ebcdic(rec[15:19])
+                is_current = rec[19:20].decode("cp500").strip()
+
+                if not gpn_number or gpn_number == "000000":
+                    continue
+
+                # Only Permian districts
+                district_str = f"{cur_district:02d}"
+                if district_str not in PERMIAN_DISTRICTS:
+                    continue
+
+                mapped_district = DISTRICT_MAP.get(district_str, district_str)
+                gatherers.append([
+                    cur_og, mapped_district, cur_lease,
+                    product_code, type_code, percentage,
+                    gpn_number, purch_system_no, is_current,
+                    cur_effective_date,
+                ])
+                gpn_count += 1
+
+    # Write gatherers CSV
+    out_path = out_dir / "gatherers.csv"
+    with open(out_path, "w", newline="") as fout:
+        w = csv.writer(fout)
+        w.writerow(["oil_gas_code", "district", "lease_rrcid", "product_code",
+                     "type_code", "percentage", "gpn_number", "purch_system_no",
+                     "is_current", "effective_date"])
+        w.writerows(gatherers)
+
+    print(f"Parsed {op_count} P-4 lease operators")
+    print(f"Wrote {gpn_count} gatherer/purchaser/nominator records to {out_path}")
     return operators
 
 
@@ -216,7 +275,7 @@ if __name__ == "__main__":
 
     # Parse P-4 first (needed by wellbore parser for current operators)
     p4_path = data_dir / "p4f606.ebc.gz"
-    p4_operators = parse_p4(p4_path) if p4_path.exists() else {}
+    p4_operators = parse_p4(p4_path, data_dir) if p4_path.exists() else {}
     if not p4_operators:
         print("WARNING: No P-4 data — using wellbore operators (may be stale)")
 

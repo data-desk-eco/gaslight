@@ -148,6 +148,16 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
 .intensity-chart svg { width: 100%; height: 100px; display: block; }
 .intensity-chart .chart-dot:hover { r: 3; }
 
+.gatherer-list { padding: 4px 16px 8px; }
+.gatherer-row { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--font-sm); padding: 2px 0; }
+.gatherer-name { color: var(--text-secondary); }
+.gatherer-meta { color: var(--text-faint); font-size: var(--font-xs); text-align: right; flex-shrink: 0; margin-left: 8px; }
+.gatherer-row .dim { color: var(--text-faint); }
+.gatherer-history { margin-top: 4px; }
+.gatherer-history summary { color: var(--text-faint); font-size: var(--font-xs); cursor: pointer; }
+.gatherer-history summary:hover { color: var(--text-secondary); }
+.loading-placeholder { color: var(--text-faint); font-size: var(--font-xs); }
+
 .btn-action {
     display: block;
     padding: 8px 12px;
@@ -303,21 +313,28 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
 
 #drawer-handle {
     position: fixed; left: 0; top: 50%; transform: translateY(-50%);
-    display: flex; align-items: stretch; gap: 0;
+    display: flex; align-items: center; justify-content: center;
     cursor: col-resize;
-    z-index: 6; transition: background 0.15s;
+    z-index: 6;
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-subtle);
+    border-left: none;
+    border-radius: 0;
+    padding: 12px 6px;
+    transition: border-color 0.15s, background 0.15s;
 }
-#drawer-handle .handle-bar {
-    width: 6px;
-    background: rgba(255,255,255,0.15); transition: background 0.15s;
+#drawer-handle:hover {
+    border-color: var(--border-light);
+    background: rgba(0, 0, 0, 0.65);
 }
-#drawer-handle:hover .handle-bar { background: rgba(255,255,255,0.3); }
+#drawer-handle .handle-bar { display: none; }
 #drawer-handle .handle-label {
     writing-mode: vertical-rl; text-orientation: mixed;
-    font: 600 11px/1 var(--font-sans, system-ui, sans-serif);
-    letter-spacing: 0.05em;
-    color: rgba(255,255,255,0.6); white-space: nowrap;
-    padding: 0 4px 0 3px; user-select: none;
+    font: 500 var(--font-sm)/1 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    letter-spacing: 0.04em;
+    color: var(--text-primary); white-space: nowrap;
+    user-select: none;
 }
 
 .drawer-tab-bar {
@@ -343,7 +360,7 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
 }
 
 .drawer-table th {
-    position: sticky; top: 0; background: var(--bg-panel);
+    position: sticky; top: 0; background: #0d0d0d;
     padding: 4px 8px; text-align: left; cursor: pointer;
     color: var(--text-hint); font-size: 9px;
     font-weight: normal; white-space: nowrap;

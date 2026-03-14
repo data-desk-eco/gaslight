@@ -104,6 +104,11 @@ SELECT
 FROM read_csv('data/pdq/OG_SUMMARY_MASTER_LARGE_DATA_TABLE.dsv',
     delim='}', header=true, all_varchar=true, ignore_errors=true);
 
+-- P-4 gatherer/purchaser/nominator records
+CREATE OR REPLACE TABLE raw.gatherers AS
+SELECT * FROM read_csv('data/gatherers.csv', header=true, auto_detect=true,
+    types={'effective_date': 'VARCHAR'});
+
 -- RRC R-3 gas processing facility exclusion zones
 CREATE OR REPLACE TABLE raw.excluded_facilities AS
 SELECT *,
