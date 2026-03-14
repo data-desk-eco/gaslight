@@ -8,7 +8,7 @@ const _loading = new Map();
 // Tier 1: visible layers loaded right after first paint (198K + 165K)
 // Tier 2: deferred until first query (7MB wells, 670K detections, 42K leases, 2.9MB lease_monthly)
 const TIER0 = ['flares'];
-const TIER1 = ['permits', 'plumes'];
+const TIER1 = ['permits', 'plumes', 'facilities'];
 
 async function _loadParquet(name) {
     if (_loaded.has(name)) return;
@@ -193,7 +193,7 @@ export async function queryFlares({ operator } = {}) {
     const result = await query(`
         SELECT f.flare_id, f.lat, f.lon, f.detection_days,
             f.total_rh_mw, f.avg_rh_mw,
-            f.first_detected, f.last_detected, f.near_excluded_facility
+            f.first_detected, f.last_detected
         FROM 'flares.parquet' f ${where}
     `);
     const data = rows(result);
@@ -447,6 +447,27 @@ export async function queryPlumes() {
             properties: r
         }))
     };
+}
+
+export async function queryNearbyFacilities(lat, lon, radiusKm = 5) {
+    await need('facilities');
+    const { dLat, dLon } = bboxDeltas(lat, radiusKm);
+    const result = await query(`
+        SELECT serial_number, facility_name, plant_type, latitude, longitude,
+            111.32 * sqrt(
+                power((latitude - ${lat}) * cos(radians(${lat})), 2) +
+                power(longitude - (${lon}), 2)
+            ) AS distance_km
+        FROM 'facilities.parquet'
+        WHERE latitude BETWEEN ${lat - dLat} AND ${lat + dLat}
+          AND longitude BETWEEN ${lon - dLon} AND ${lon + dLon}
+          AND 111.32 * sqrt(
+              power((latitude - ${lat}) * cos(radians(${lat})), 2) +
+              power(longitude - (${lon}), 2)
+          ) <= ${radiusKm}
+        ORDER BY distance_km
+    `);
+    return rows(result);
 }
 
 export async function queryWells({ operator, bounds } = {}) {

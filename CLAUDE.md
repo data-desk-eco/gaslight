@@ -11,6 +11,7 @@ Flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite flare 
 - `scripts/parse_rrc.py` — parses EBCDIC to `wells.csv` + `operators.csv` (Permian districts 6E/7B/7C/08/8A)
 - `scripts/fetch_vnf.py` — fetches VNF profiles from EOG
 - `scripts/fetch_plumes.py` — fetches Carbon Mapper + IMEO methane plume data
+- `scripts/fetch_r3.py` — fetches RRC R-3 gas processing facility locations
 - `queries/load.sql` → `rrc.sql` → `export.sql` — SQL pipeline (load → normalise → export parquets)
 - `web/` — interactive map (MapLibre GL + DuckDB WASM, zero npm deps)
 - `web/app.js` — main app: map setup, feature detail panels, S2 enhancement UI, shared helpers (`$`, `openDetail`, `fmtCoords`, color ramps, `renderTimeline`)
@@ -45,7 +46,7 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 1. **Flare detection**: VNF flare sites matched to SWR 32 permit locations and RRC wells within 375m (VIIRS M-band pixel radius).
 2. **Lease matching**: flares matched to leases via nearby wells within 375m. Wells carry `lease_district` and `lease_number` from RRC records; grouping by these fields links flares to their underlying leases.
 3. **Operator attribution** (client-side, DuckDB WASM): combined evidence from permits and wells within 375m. Prefers operators with permit filings, then most evidence (wells + permits), then closest distance. Confidence: `sole`/`majority`/`contested`. Pre-computed for all flares at startup (`flare_operators` in-memory table); S2 clusters use live spatial queries.
-4. **Exclusions**: EPA GHGRP non-upstream facilities within 1.5km; Gas Plant permits filtered out.
+4. **Facility matching**: RRC R-3 gas processing facilities matched to flares within 5km. When a nearby facility is found, it is shown in the detail card instead of well-derived operator attribution. Gas Plant permits also filtered from the permits layer.
 5. **Sentinel-2 enhancement**: Per-flare deep analysis using s2-flares library. Searches Sentinel-2 archive (last year) over a 750m bbox, runs detection at 20m resolution, clusters results incrementally after each image. Accessed via "Enhance with Sentinel-2" button in flare detail panel. Each S2 cluster is a first-class map feature with its own detail card (B12 stats, timeline chart, permit coverage) and deep link (`#s2=HASH`). Clusters get a deterministic hash ID based on anchor position. Enhancement runs in the background — navigating away doesn't cancel it; only the explicit "Stop Analysis" button does. Stopped analyses resume from where they left off (worker skips already-processed dates). Results cached to localStorage with a `complete` flag distinguishing finished vs partial runs.
 6. **Reported flaring volumes**: Monthly lease-level gas disposition data from RRC PDQ (Production Data Query). Disposition code 04 = gas vented/flared. `rrc.production` stores monthly totals per lease (gas flared MCF + casinghead gas flared MCF). Flaring intensity = flared gas / total gas produced (%). Shown per-well in detail cards with monthly production charts.
 7. **S2 pixel overlay**: Clicking a detection date in an S2 cluster detail card fetches the Sentinel-2 B12 COG via STAC, reads a 250m window around the cluster, and renders hot pixels (>0.6 reflectance) on the map with a magma colormap and nearest-neighbour resampling.
@@ -71,6 +72,7 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 - `make vendor` — download vendored JS deps
 - `make serve` — dev server on :8080
 - `make plumes` — fetch latest plume data
+- `make r3` — fetch RRC R-3 gas processing facilities
 - `make clean` — removes derived data
 - `make help` — list all targets
 - `duckdb data/data.duckdb` — query interactively

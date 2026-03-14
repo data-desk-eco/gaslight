@@ -104,11 +104,11 @@ SELECT
 FROM read_csv('data/pdq/OG_SUMMARY_MASTER_LARGE_DATA_TABLE.dsv',
     delim='}', header=true, all_varchar=true, ignore_errors=true);
 
--- EPA GHGRP non-upstream facility exclusion zones
+-- RRC R-3 gas processing facility exclusion zones
 CREATE OR REPLACE TABLE raw.excluded_facilities AS
 SELECT *,
     CASE WHEN latitude != 0 AND longitude != 0 THEN ST_Point(longitude, latitude) END AS geom
-FROM read_csv('data/excluded_facilities.csv', header=true, auto_detect=true);
+FROM read_csv('data/r3_facilities.csv', header=true, auto_detect=true);
 
 -- Methane plumes (Carbon Mapper + IMEO)
 CREATE OR REPLACE TABLE raw.plumes AS
