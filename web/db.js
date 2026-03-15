@@ -523,6 +523,129 @@ export async function queryGatherers(leaseDistrict, leaseNumber) {
     return rows(result);
 }
 
+function _searchTerm(search) {
+    if (!search) return null;
+    const s = search.replace(/'/g, "''").replace(/%/g, '\\%').replace(/_/g, '\\_');
+    return `'%${s}%' ESCAPE '\\'`;
+}
+
+function _searchWhere(layer, term) {
+    if (!term) return null;
+    switch (layer) {
+        case 'flares':
+            return `(CAST(first_detected AS VARCHAR) ILIKE ${term} OR CAST(last_detected AS VARCHAR) ILIKE ${term})`;
+        case 'permits':
+            return `(name ILIKE ${term} OR county ILIKE ${term} OR district ILIKE ${term} OR release_type ILIKE ${term} OR operator_name ILIKE ${term})`;
+        case 'plumes':
+            return `(CAST(plume_id AS VARCHAR) ILIKE ${term} OR source ILIKE ${term} OR satellite ILIKE ${term} OR CAST(date AS VARCHAR) ILIKE ${term} OR sector ILIKE ${term})`;
+        case 'wells':
+            return `(CAST(api AS VARCHAR) ILIKE ${term} OR oil_gas_code ILIKE ${term} OR lease_district ILIKE ${term} OR CAST(lease_number AS VARCHAR) ILIKE ${term} OR CAST(well_number AS VARCHAR) ILIKE ${term} OR operator_name ILIKE ${term} OR lease_name ILIKE ${term})`;
+        case 'infra':
+            return `(CAST(serial_number AS VARCHAR) ILIKE ${term} OR facility_name ILIKE ${term} OR plant_type ILIKE ${term})`;
+    }
+    return null;
+}
+
+function _layerBaseSql(layer, where) {
+    const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    switch (layer) {
+        case 'flares':
+            return `SELECT flare_id, lat, lon, round(lat, 2) AS lat_r, round(lon, 2) AS lon_r,
+                detection_days, total_rh_mw, avg_rh_mw, first_detected, last_detected
+                FROM 'flares.parquet' ${w}`;
+        case 'permits':
+            return `SELECT latitude, longitude,
+                round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r,
+                name, county, district, release_type, operator_name,
+                count(*) AS n_filings, MIN(effective_dt) AS earliest_effective,
+                MAX(expiration_dt) AS latest_expiration, MAX(release_rate_mcf_day) AS max_release_rate_mcf_day
+                FROM 'permits.parquet' ${w}
+                GROUP BY latitude, longitude, name, county, district, release_type, operator_name`;
+        case 'plumes':
+            return `SELECT plume_id, latitude, longitude,
+                round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r,
+                source, satellite, CAST(date AS VARCHAR) AS date, emission_rate, emission_uncertainty, sector
+                FROM 'plumes.parquet' ${w}`;
+        case 'wells':
+            return `SELECT api, oil_gas_code, lease_district, lease_number, well_number,
+                operator_name, latitude, longitude,
+                round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r,
+                flared_mcf, produced_mcf, flaring_intensity_pct, lease_name
+                FROM 'wells.parquet' ${w}`;
+        case 'infra':
+            return `SELECT serial_number, facility_name, plant_type,
+                latitude, longitude,
+                round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r
+                FROM 'facilities.parquet' ${w}`;
+    }
+    return null;
+}
+
+const _latCol = { flares: 'lat', permits: 'latitude', plumes: 'latitude', wells: 'latitude', infra: 'latitude' };
+const _lonCol = { flares: 'lon', permits: 'longitude', plumes: 'longitude', wells: 'longitude', infra: 'longitude' };
+
+export async function queryDrawerRows(layer, bounds, search, sortCol, sortDir, limit = 1000) {
+    const { south, north, west, east } = bounds;
+    const term = _searchTerm(search);
+    const lat = _latCol[layer], lon = _lonCol[layer];
+
+    const where = [`${lat} BETWEEN ${south} AND ${north}`, `${lon} BETWEEN ${west} AND ${east}`];
+    if (layer === 'permits') where.push('latitude IS NOT NULL', 'longitude IS NOT NULL');
+    const sw = _searchWhere(layer, term);
+    if (sw) where.push(sw);
+
+    const baseSql = _layerBaseSql(layer, where);
+    if (!baseSql) return { rows: [], total: 0 };
+
+    const order = sortCol ? `ORDER BY "${sortCol}" ${sortDir === 'DESC' ? 'DESC' : 'ASC'}` : '';
+    const sql = `WITH base AS (${baseSql})
+        SELECT * EXCLUDE (${lat}, ${lon}, lat_r, lon_r),
+            lat_r AS ${lat === 'lat' ? 'lat' : 'latitude'},
+            lon_r AS ${lon === 'lon' ? 'lon' : 'longitude'},
+            count(*) OVER() AS _total
+        FROM base ${order} LIMIT ${limit}`;
+    const result = await query(sql);
+    const data = rows(result);
+    const total = data.length > 0 ? data[0]._total : 0;
+    for (const r of data) delete r._total;
+    return { rows: data, total };
+}
+
+export async function queryMapSearch(layer, search) {
+    const term = _searchTerm(search);
+    const sw = _searchWhere(layer, term);
+    if (!sw) return null;
+
+    const lat = _latCol[layer], lon = _lonCol[layer];
+    const where = [sw];
+    if (layer === 'permits') where.push('latitude IS NOT NULL', 'longitude IS NOT NULL');
+
+    const baseSql = _layerBaseSql(layer, where);
+    if (!baseSql) return null;
+
+    const sql = `WITH base AS (${baseSql})
+        SELECT * EXCLUDE (lat_r, lon_r) FROM base`;
+    const result = await query(sql);
+    const data = rows(result);
+
+    const latKey = lat, lonKey = lon;
+    return {
+        type: 'FeatureCollection',
+        features: data.map(r => {
+            const rlat = Number(r[latKey]), rlon = Number(r[lonKey]);
+            delete r[latKey]; delete r[lonKey];
+            // Add rounded display coords as properties
+            r[latKey === 'lat' ? 'lat' : 'latitude'] = Math.round(rlat * 100) / 100;
+            r[lonKey === 'lon' ? 'lon' : 'longitude'] = Math.round(rlon * 100) / 100;
+            return {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [rlon, rlat] },
+                properties: r,
+            };
+        })
+    };
+}
+
 export async function queryWells({ operator, bounds } = {}) {
     await need('wells');
     const conditions = [];

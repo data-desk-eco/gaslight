@@ -29,15 +29,15 @@ Two-schema database design, with analytical work done client-side in DuckDB WASM
 
 Pipeline: `load → rrc → export` (export writes normalised parquets for the web app)
 
-Client-side (DuckDB WASM): operator attribution, plume display, operator search — all computed live from the exported parquets.
+Client-side (DuckDB WASM): operator attribution, plume display, operator search, drawer text search — all computed live from the exported parquets.
 
 ### Web app structure
 
 Single-page app with no build step and zero npm dependencies. MapLibre GL and DuckDB WASM are vendored.
 
 - **app.js** — entry point. Initialises map, loads data, binds UI. Contains shared utilities: `$` (DOM lookup), `openDetail` (detail panel lifecycle), `fmtCoords`, color ramp functions (`b12Color`, `mwColor`), `renderTimeline` (shared SVG chart builder for both VNF sparklines and S2 timelines), and geo constants (`LAT_PER_M`, `lonPerM`).
-- **db.js** — DuckDB WASM interface. Loads parquets, exposes typed query functions. Shared helpers: `bboxDeltas` (lat/lon deltas from radius). Builds `flare_operators` in-memory table at startup for O(1) operator lookups.
-- **drawer.js** — data drawer with tabbed tables (flares/permits/plumes/wells/infra), column sorting, keyboard navigation (j/k/h/l/g/G), viewport-synced queries. Clicking a map feature switches to the relevant tab and pins the selected row at the top. Selection persists across pan/zoom and deep links.
+- **db.js** — DuckDB WASM interface. Loads parquets, exposes typed query functions. Shared helpers: `bboxDeltas` (lat/lon deltas from radius). Builds `flare_operators` in-memory table at startup for O(1) operator lookups. `queryDrawerRows`/`queryMapSearch` power the drawer's text search with DuckDB ILIKE on text columns.
+- **drawer.js** — data drawer with tabbed tables (flares/permits/plumes/wells/infra), column sorting, keyboard navigation (j/k/h/l/g/G), viewport-synced queries, and text search. Search box filters both the table and the map layer via DuckDB ILIKE queries on text columns. Clicking a map feature switches to the relevant tab and pins the selected row at the top. Selection persists across pan/zoom and deep links.
 - **enhance.js** — manages s2-flares Web Worker lifecycle, localStorage caching, cluster state.
 - **style.css** — all styling via CSS custom properties. `.btn-action` base class for action buttons. `.glass` / `.panel` for frosted-glass panels.
 

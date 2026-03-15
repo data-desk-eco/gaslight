@@ -29,6 +29,7 @@ let drawerEl = null;
 let handleEl = null;
 let tableEl = null;
 let tabBarEl = null;
+let searchEl = null;
 let footerEl = null;
 let drawerWidth = 0;
 let activeTab = null;
@@ -38,16 +39,22 @@ let selectedId = null;
 let selectedIdx = -1;
 let sortCol = null;
 let sortDir = 'ASC';
+let searchTerm = '';
+let _queryGen = 0;
 
 // Feature data pushed from app.js after each load
 const allData = {};
 
 // Callbacks set by app.js
 let onRowClick = null;
+let _queryFn = null;
+let _onSearch = null;
 
-export function init(mapInstance, { onSelect } = {}) {
+export function init(mapInstance, { onSelect, onQuery, onSearch } = {}) {
     map = mapInstance;
     onRowClick = onSelect || null;
+    _queryFn = onQuery || null;
+    _onSearch = onSearch || null;
     createDOM();
     bindDrag();
     bindLayerToggles();
@@ -65,9 +72,25 @@ function createDOM() {
     drawerEl = document.createElement('div');
     drawerEl.id = 'data-drawer';
 
+    const headerEl = document.createElement('div');
+    headerEl.className = 'drawer-header';
+
     tabBarEl = document.createElement('div');
     tabBarEl.className = 'drawer-tab-bar';
-    drawerEl.appendChild(tabBarEl);
+    headerEl.appendChild(tabBarEl);
+
+    searchEl = document.createElement('input');
+    searchEl.type = 'text';
+    searchEl.className = 'drawer-search';
+    searchEl.placeholder = 'Search\u2026';
+    searchEl.addEventListener('input', () => {
+        searchTerm = searchEl.value.trim();
+        if (_onSearch) _onSearch(activeTab, searchTerm);
+        refreshTable();
+    });
+    headerEl.appendChild(searchEl);
+
+    drawerEl.appendChild(headerEl);
 
     const tableContainer = document.createElement('div');
     tableContainer.className = 'drawer-table-wrap';
@@ -311,9 +334,34 @@ function ensureActiveTab() {
     }
 }
 
-// Filter + sort the already-loaded data client-side
-function refreshTable() {
+// Filter + sort the already-loaded data client-side, or query DuckDB when searching
+async function refreshTable() {
     if (!activeTab || drawerWidth < MIN_WIDTH) return;
+
+    // When searching, push filtering to DuckDB
+    if (searchTerm && _queryFn) {
+        const gen = ++_queryGen;
+        const b = map.getBounds();
+        const bounds = { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() };
+        const { rows: data, total } = await _queryFn(activeTab, bounds, searchTerm, sortCol, sortDir);
+        if (gen !== _queryGen) return; // stale
+
+        if (selectedId != null) {
+            const idx = data.findIndex(r => getRowId(r, activeTab) === selectedId);
+            if (idx > 0) {
+                const [row] = data.splice(idx, 1);
+                data.unshift(row);
+            }
+            selectedIdx = idx >= 0 ? (idx > 0 ? 0 : idx) : -1;
+        } else {
+            selectedIdx = -1;
+        }
+
+        currentRows = data;
+        currentTotalCount = total;
+        renderTable(data, total);
+        return;
+    }
 
     const rows = allData[activeTab] || [];
     const info = LAYERS[activeTab];

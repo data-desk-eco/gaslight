@@ -92,6 +92,7 @@ let operatorFilter = '';
 let overlappingFeatures = [];
 let overlapIndex = 0;
 let flareFeatures = [];
+const _originalSourceData = {}; // stashed per-layer source data for restoring after search
 
 const map = new maplibregl.Map({
     container: 'map',
@@ -169,6 +170,19 @@ map.on('load', async () => {
     map.once('idle', updateStats);
 
     drawer.init(map, {
+        onQuery: (layer, bounds, search, sortCol, sortDir) =>
+            db.queryDrawerRows(layer, bounds, search, sortCol, sortDir),
+        onSearch: async (layer, term) => {
+            const source = map.getSource(layer);
+            if (!source) return;
+            if (!term) {
+                // Restore original data
+                if (_originalSourceData[layer]) source.setData(_originalSourceData[layer]);
+                return;
+            }
+            const fc = await db.queryMapSearch(layer, term);
+            if (fc) source.setData(fc);
+        },
         onSelect: (layer, row) => {
             const info = {
                 flares: { latCol: 'lat', lonCol: 'lon' },
@@ -488,6 +502,7 @@ async function refreshFlares() {
     flareFeatures = data.features;
     _latestFlareData = data;
     _pixelsBuilt = false;
+    _originalSourceData.flares = data;
     map.getSource('flares').setData(data);
     // Pixel squares invisible until z13 — build lazily
     if (map.getZoom() >= 12) ensureFlarePixels();
@@ -498,6 +513,7 @@ async function refreshFlares() {
 async function loadPermits() {
     if (!layerState.permits) return;
     const data = await db.queryPermits({ operator: operatorFilter || undefined });
+    _originalSourceData.permits = data;
     map.getSource('permits').setData(data);
     setTimeout(() => drawer.setData('permits', data.features), 0);
 }
@@ -505,6 +521,7 @@ async function loadPermits() {
 async function loadPlumes() {
     if (!layerState.plumes) return;
     const data = await db.queryPlumes();
+    _originalSourceData.plumes = data;
     map.getSource('plumes').setData(data);
     drawer.setData('plumes', data.features);
 }
@@ -512,6 +529,7 @@ async function loadPlumes() {
 async function loadInfra() {
     if (!layerState.infra) return;
     const data = await db.queryFacilities();
+    _originalSourceData.infra = data;
     map.getSource('infra').setData(data);
     drawer.setData('infra', data.features);
 }
@@ -521,6 +539,7 @@ async function loadWells() {
     const b = map.getBounds();
     const bounds = { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() };
     const data = await db.queryWells({ operator: operatorFilter || undefined, bounds });
+    _originalSourceData.wells = data;
     map.getSource('wells').setData(data);
     drawer.setData('wells', data.features);
 }
