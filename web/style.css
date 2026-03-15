@@ -365,6 +365,7 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
     z-index: 5;
     display: flex; flex-direction: column;
     border-right: 1px solid var(--border-subtle);
+    outline: none;
 }
 
 #drawer-handle {

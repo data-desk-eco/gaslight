@@ -44,6 +44,8 @@ let _queryGen = 0;
 
 // Feature data pushed from app.js after each load
 const allData = {};
+// Pre-extracted numeric coords for fast viewport filtering (parallel arrays per layer)
+const _coords = {};
 
 // Callbacks set by app.js
 let onRowClick = null;
@@ -64,13 +66,25 @@ export function init(mapInstance, { onSelect, onQuery, onSearch } = {}) {
 
 // Called by app.js after loading data for a layer
 export function setData(layer, features) {
-    allData[layer] = features.map(f => f.properties);
+    const props = features.map(f => f.properties);
+    allData[layer] = props;
+    // Pre-extract numeric coords into typed arrays for fast viewport filtering
+    const info = LAYERS[layer];
+    const n = props.length;
+    const lats = new Float64Array(n);
+    const lons = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+        lats[i] = +props[i][info.latCol];
+        lons[i] = +props[i][info.lonCol];
+    }
+    _coords[layer] = { lats, lons };
     if (layer === activeTab && drawerWidth >= MIN_WIDTH) refreshTable();
 }
 
 function createDOM() {
     drawerEl = document.createElement('div');
     drawerEl.id = 'data-drawer';
+    drawerEl.tabIndex = -1; // focusable but not in tab order
 
     const headerEl = document.createElement('div');
     headerEl.className = 'drawer-header';
@@ -196,16 +210,35 @@ function bindLayerToggles() {
 }
 
 function bindMapEvents() {
-    let debounceTimer = null;
+    let rafId = null;
+    const LIVE_MIN_ZOOM = 8; // below this zoom, too many features — only update on moveend
+    map.on('move', () => {
+        if (drawerWidth < MIN_WIDTH || rafId) return;
+        if (searchTerm || map.getZoom() < LIVE_MIN_ZOOM) return;
+        rafId = requestAnimationFrame(() => {
+            rafId = null;
+            refreshTable();
+        });
+    });
     map.on('moveend', () => {
         if (drawerWidth < MIN_WIDTH) return;
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => refreshTable(), 150);
+        if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+        refreshTable();
     });
 }
 
 function bindKeyboard() {
-    document.addEventListener('keydown', e => {
+    // Focus drawer when clicking inside it (but not the search input)
+    drawerEl.addEventListener('pointerdown', e => {
+        if (e.target !== searchEl) drawerEl.focus({ preventScroll: true });
+    });
+    // Focus map when clicking on the map canvas
+    map.getCanvas().addEventListener('pointerdown', () => {
+        if (document.activeElement === drawerEl) drawerEl.blur();
+    });
+
+    // Keyboard events only fire when drawer has focus
+    drawerEl.addEventListener('keydown', e => {
         if (drawerWidth < MIN_WIDTH || !activeTab) return;
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
@@ -364,15 +397,21 @@ async function refreshTable() {
     }
 
     const rows = allData[activeTab] || [];
-    const info = LAYERS[activeTab];
+    const coords = _coords[activeTab];
+    if (!coords) return;
+    const { lats, lons } = coords;
     const b = map.getBounds();
     const south = b.getSouth(), north = b.getNorth(), west = b.getWest(), east = b.getEast();
 
-    // Viewport filter
-    let filtered = rows.filter(r => {
-        const [lat, lon] = rowCoords(r, info);
-        return lat >= south && lat <= north && lon >= west && lon <= east;
-    });
+    // Viewport filter using pre-extracted typed arrays
+    const n = rows.length;
+    let filtered = [];
+    for (let i = 0; i < n; i++) {
+        const lat = lats[i], lon = lons[i];
+        if (lat >= south && lat <= north && lon >= west && lon <= east) {
+            filtered.push(rows[i]);
+        }
+    }
 
     const totalCount = filtered.length;
 
@@ -420,26 +459,31 @@ function renderTable(data, totalCount) {
     }
 
     const cols = Object.keys(data[0]);
+    const nCols = cols.length;
+    // Pre-size: header row + data rows, ~nCols tags each
+    const parts = [];
 
-    let html = '<thead><tr>';
-    for (const col of cols) {
+    parts.push('<thead><tr>');
+    for (let c = 0; c < nCols; c++) {
+        const col = cols[c];
         const isSorted = sortCol === col;
-        const arrow = isSorted ? (sortDir === 'ASC' ? ' \u2191' : ' \u2193') : '';
-        html += `<th data-col="${col}" class="${isSorted ? 'sorted' : ''}">${col}${arrow}</th>`;
+        parts.push(isSorted
+            ? `<th data-col="${col}" class="sorted">${col}${sortDir === 'ASC' ? ' \u2191' : ' \u2193'}</th>`
+            : `<th data-col="${col}">${col}</th>`);
     }
-    html += '</tr></thead><tbody>';
+    parts.push('</tr></thead><tbody>');
 
-    for (let i = 0; i < data.length; i++) {
+    for (let i = 0, n = data.length; i < n; i++) {
         const row = data[i];
-        html += `<tr data-idx="${i}"${i === selectedIdx ? ' class="selected"' : ''}>`;
-        for (const col of cols) {
-            const v = row[col];
-            html += `<td>${v == null ? '' : esc(v)}</td>`;
+        parts.push(i === selectedIdx ? `<tr data-idx="${i}" class="selected">` : `<tr data-idx="${i}">`);
+        for (let c = 0; c < nCols; c++) {
+            const v = row[cols[c]];
+            parts.push(v == null ? '<td></td>' : `<td>${esc(v)}</td>`);
         }
-        html += '</tr>';
+        parts.push('</tr>');
     }
-    html += '</tbody>';
-    tableEl.innerHTML = html;
+    parts.push('</tbody>');
+    tableEl.innerHTML = parts.join('');
 
     // Snap to top so pinned selected row is visible
     if (selectedIdx === 0) {
