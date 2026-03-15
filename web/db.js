@@ -119,6 +119,7 @@ export async function buildOperatorIndex() {
 
 async function _buildOperatorIndex() {
     await need('permits', 'wells');
+    _log('build  flare_operators index');
     const dist = distSql('p.latitude', 'p.longitude', 'f.lat', 'f.lon');
     const wDist = distSql('w.latitude', 'w.longitude', 'f.lat', 'f.lon');
     await conn.query(`
@@ -219,19 +220,13 @@ function rows(result) {
     return out;
 }
 
-export async function queryFlares({ operator } = {}) {
-    let where = '';
-    if (operator) {
-        await buildOperatorIndex();
-        const op = operator.toLowerCase().replace(/'/g, "''");
-        where = `JOIN flare_operators fo USING (flare_id) WHERE lower(fo.operator_name) LIKE '%${op}%'`;
-    }
+export async function queryFlares() {
     const result = await query(`
         SELECT f.flare_id, f.lat AS _lat, f.lon AS _lon,
             round(f.lat, 2) AS lat, round(f.lon, 2) AS lon,
             f.detection_days, f.total_rh_mw, f.avg_rh_mw,
             f.first_detected, f.last_detected
-        FROM 'flares.parquet' f ${where}
+        FROM 'flares.parquet' f
     `);
     const data = rows(result);
     return {
@@ -283,10 +278,9 @@ export async function queryLeaseMonthly(leaseDistrict, leaseNumber) {
     return rows(result);
 }
 
-export async function queryPermits({ operator } = {}) {
+export async function queryPermits() {
     await need('permits');
-    let where = 'WHERE latitude IS NOT NULL AND longitude IS NOT NULL';
-    if (operator) where += ` AND lower(operator_name) LIKE '%${operator.toLowerCase().replace(/'/g, "''")}%'`;
+    const where = 'WHERE latitude IS NOT NULL AND longitude IS NOT NULL';
     const result = await query(`
         SELECT latitude AS _lat, longitude AS _lon,
             round(latitude, 2) AS latitude, round(longitude, 2) AS longitude,
@@ -646,14 +640,13 @@ export async function queryMapSearch(layer, search) {
     };
 }
 
-export async function queryWells({ operator, bounds } = {}) {
+export async function queryWells({ bounds } = {}) {
     await need('wells');
     const conditions = [];
     if (bounds) {
         conditions.push(`latitude BETWEEN ${bounds.south} AND ${bounds.north}`);
         conditions.push(`longitude BETWEEN ${bounds.west} AND ${bounds.east}`);
     }
-    if (operator) conditions.push(`lower(operator_name) LIKE '%${operator.toLowerCase().replace(/'/g, "''")}%'`);
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const result = await query(`
         SELECT api, oil_gas_code, lease_district, lease_number, well_number,

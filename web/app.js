@@ -44,6 +44,7 @@ db.onLog(bootLog);
 db.onStatus(bootStatus);
 bootLog('gaslight / upstream flaring in the permian');
 bootLog('');
+bootLog('prefetch flares.parquet');
 
 const _css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 const COLORS = {
@@ -88,7 +89,6 @@ function openDetail(title, lat, lon, body) {
 }
 
 let layerState = { flares: true, permits: true, plumes: false, wells: false, infra: false };
-let operatorFilter = '';
 let overlappingFeatures = [];
 let overlapIndex = 0;
 let flareFeatures = [];
@@ -149,22 +149,29 @@ map.on('load', async () => {
     await dbReady;
     bootLog('duckdb ready');
 
+    bootLog('create map sources');
     addEmptySources();
+    bootLog('create map layers');
     addLayers();
+    bootLog('bindui event listeners');
     bindUI();
     bootLog('query  flares.parquet');
     bootStatus('querying flare sites...');
     await refreshFlares();
     bootLog(`render ${flareFeatures.length.toLocaleString()} flare sites`);
-    bootStatus('loading permits, plumes, wells...');
+    bootStatus('loading tier 1 data...');
     // Tier 1: start loading permits + plumes in background
+    bootLog('tier1  fetch permits, plumes, wells, facilities');
     db.loadTier1();
     loadPermits();
-    loadCachedS2();
+    const cached = loadCachedS2();
+    if (cached) bootLog('restore cached s2 enhancements');
     updateMapCentre();
     handleDeepLink();
     // Start building operator index in background (ready for first click)
+    bootLog('index  operator attribution (background)');
     db.buildOperatorIndex();
+    bootLog('init   data drawer');
     bootDone();
     // Stats use queryRenderedFeatures — wait for first idle after data loads
     map.once('idle', updateStats);
@@ -498,7 +505,7 @@ function ensureFlarePixels() {
 }
 
 async function refreshFlares() {
-    const data = await db.queryFlares({ operator: operatorFilter || undefined });
+    const data = await db.queryFlares();
     flareFeatures = data.features;
     _latestFlareData = data;
     _pixelsBuilt = false;
@@ -512,7 +519,7 @@ async function refreshFlares() {
 
 async function loadPermits() {
     if (!layerState.permits) return;
-    const data = await db.queryPermits({ operator: operatorFilter || undefined });
+    const data = await db.queryPermits();
     _originalSourceData.permits = data;
     map.getSource('permits').setData(data);
     setTimeout(() => drawer.setData('permits', data.features), 0);
@@ -538,7 +545,7 @@ async function loadWells() {
     if (!layerState.wells) return;
     const b = map.getBounds();
     const bounds = { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() };
-    const data = await db.queryWells({ operator: operatorFilter || undefined, bounds });
+    const data = await db.queryWells({ bounds });
     _originalSourceData.wells = data;
     map.getSource('wells').setData(data);
     drawer.setData('wells', data.features);
@@ -547,7 +554,7 @@ async function loadWells() {
 
 function loadCachedS2() {
     const clusters = loadAllCached(); // also rebuilds clusterIndex
-    if (clusters.length === 0) return;
+    if (clusters.length === 0) return 0;
     const fc = {
         type: 'FeatureCollection',
         features: clusters.map(d => ({
@@ -563,6 +570,7 @@ function loadCachedS2() {
         })),
     };
     map.getSource('s2-detections').setData(fc);
+    return clusters.length;
 }
 
 function updateMapCentre() {
@@ -627,17 +635,6 @@ function bindUI() {
             cb.dispatchEvent(new Event('change'));
         });
     }
-
-    let searchTimeout;
-    $('operator-search').addEventListener('input', e => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            operatorFilter = e.target.value.trim();
-            refreshFlares();
-            loadPermits();
-            loadWells();
-        }, 300);
-    });
 
     $('detail-close').addEventListener('click', closeDetail);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
