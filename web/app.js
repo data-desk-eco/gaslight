@@ -94,7 +94,7 @@ function openDetail(title, lat, lon, body) {
     panel.scrollTop = 0;
 }
 
-let layerState = { flares: true, permits: true, plumes: false, wells: false, infra: false };
+let layerState = { flares: true, s2: true, permits: true, plumes: false, wells: false, infra: false };
 let overlappingFeatures = [];
 let overlapIndex = 0;
 let flareFeatures = [];
@@ -445,8 +445,17 @@ function addLayers() {
         }
     });
 
-    // Sentinel-2 detection points (visible during/after enhance)
-    // Styled like VNF flares: hollow circles scaled by intensity
+    // Sentinel-2 detection points — square markers, same color ramp as VNF
+    // Generate a hollow square SDF icon (24×24 with 2px border)
+    const sz = 24, bw = 3;
+    const canvas = document.createElement('canvas');
+    canvas.width = sz; canvas.height = sz;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, sz, sz);
+    ctx.clearRect(bw, bw, sz - 2 * bw, sz - 2 * bw);
+    map.addImage('s2-square', { width: sz, height: sz, data: ctx.getImageData(0, 0, sz, sz).data }, { sdf: true });
+
     const s2ColorRamp = [
         'interpolate', ['linear'],
         ['coalesce', ['get', 'max_b12'], 0],
@@ -454,16 +463,19 @@ function addLayers() {
     ];
     map.addLayer({
         id: 's2-points',
-        type: 'circle',
+        type: 'symbol',
         source: 's2-detections',
-        paint: {
-            'circle-radius': ['interpolate', ['linear'],
+        layout: {
+            'icon-image': 's2-square',
+            'icon-size': ['interpolate', ['linear'],
                 ['coalesce', ['get', 'max_b12'], 0],
-                0.3, 3, 0.6, 5, 1.0, 8, 1.5, 12],
-            'circle-color': s2ColorRamp,
-            'circle-opacity': 0.25,
-            'circle-stroke-width': 1.5,
-            'circle-stroke-color': s2ColorRamp,
+                0.3, 0.35, 0.6, 0.55, 1.0, 0.8, 1.5, 1.1],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
+        paint: {
+            'icon-color': s2ColorRamp,
+            'icon-opacity': 0.7,
         },
     });
 
@@ -605,7 +617,8 @@ function updateStats() {
 }
 
 const LAYER_MAP = {
-    flares: ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer', 'flare-pixels-label', 's2-points'],
+    flares: ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer', 'flare-pixels-label'],
+    s2: ['s2-points'],
     permits: ['permits-layer'],
     plumes: ['plumes-layer'],
     wells: ['wells-layer'],
@@ -816,7 +829,7 @@ const LAYER_DEFAULTS = {
     'plumes-layer': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
     'wells-layer': { 'icon-opacity': 0.85 },
     'infra-layer': { 'icon-opacity': 0.85 },
-    's2-points': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
+    's2-points': { 'icon-opacity': 1 },
 };
 
 // How much to scale each property type when dimmed (unselected).
