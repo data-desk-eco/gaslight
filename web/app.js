@@ -15,7 +15,10 @@ function bootLog(msg) {
     if (!_bootLog) return;
     const el = document.createElement('span');
     const ts = ((performance.now() - _t0) / 1000).toFixed(2).padStart(6);
-    el.textContent = `[${ts}s] ${msg}`;
+    // Justify first word to 7 chars so subsequent text aligns
+    const i = msg.indexOf(' ');
+    const fmt = i > 0 ? (msg.slice(0, i) + ' ').padEnd(8) + msg.slice(i + 1).trimStart() : msg;
+    el.textContent = `[${ts}s] ${fmt}`;
     _bootLog.appendChild(el);
     el.scrollIntoView({ block: 'end' });
 }
@@ -28,7 +31,9 @@ function bootStatus(msg) {
     const t0status = performance.now();
     const update = () => {
         const ts = ((performance.now() - _t0) / 1000).toFixed(2).padStart(6);
-        _bootStatus.textContent = `[${ts}s] ${msg}`;
+        const j = msg.indexOf(' ');
+        const sfmt = j > 0 ? (msg.slice(0, j) + ' ').padEnd(8) + msg.slice(j + 1).trimStart() : msg;
+        _bootStatus.textContent = `[${ts}s] ${sfmt}`;
     };
     update();
     _statusTimer = setInterval(update, 50);
