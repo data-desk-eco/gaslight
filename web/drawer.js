@@ -475,12 +475,16 @@ function renderTable(data, totalCount) {
     }
     parts.push('</tr></thead><tbody>');
 
+    // Identify coordinate columns for formatting (3 decimal places)
+    const isCoordCol = cols.map(c => /^(lat|lon|longitude|latitude|det_lat|det_lon|cluster_lat|cluster_lon)$/i.test(c));
+
     for (let i = 0, n = data.length; i < n; i++) {
         const row = data[i];
         parts.push(i === selectedIdx ? `<tr data-idx="${i}" class="selected">` : `<tr data-idx="${i}">`);
         for (let c = 0; c < nCols; c++) {
             const v = row[cols[c]];
-            parts.push(v == null ? '<td></td>' : `<td>${esc(v)}</td>`);
+            if (v == null) { parts.push('<td></td>'); continue; }
+            parts.push(`<td>${esc(isCoordCol[c] ? Number(v).toFixed(3) : v)}</td>`);
         }
         parts.push('</tr>');
     }
