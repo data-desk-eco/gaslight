@@ -173,13 +173,12 @@ map.on('load', async () => {
     loadPermits();
     const cached = loadCachedS2();
     if (cached) bootLog('restore cached s2 enhancements');
-    // Load pre-computed S2 bulk detections (from CLI) in background
-    precomputed.load().then(() => {
-        if (precomputed.isLoaded()) {
-            bootLog(`precomp ${precomputed.getAll().length} S2 clusters loaded`);
-            loadCachedS2(); // refresh map source to include precomputed
-        }
-    });
+    // Load pre-computed S2 bulk detections before handling deep links
+    await precomputed.load();
+    if (precomputed.isLoaded()) {
+        bootLog(`precomp ${precomputed.getAll().length} S2 clusters loaded`);
+        loadCachedS2();
+    }
     updateMapCentre();
     handleDeepLink();
     // Start building operator index in background (ready for first click)
