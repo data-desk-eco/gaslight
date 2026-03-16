@@ -1308,6 +1308,8 @@ function showPermitDetail(feature) {
             ['County', p.county || 'N/A'],
             ['District', p.district || 'N/A'],
             ['Release type', p.release_type || 'N/A'],
+            ['Earliest effective', formatDate(p.earliest_effective)],
+            ['Latest expiration', formatDate(p.latest_expiration)],
         ),
         card.section('permit-filings-section'),
     ]);
