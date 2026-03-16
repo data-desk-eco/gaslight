@@ -161,6 +161,7 @@ map.on('load', async () => {
     addLayers();
     bootLog('bindui event listeners');
     bindUI();
+    restoreLayerHash();
     bootLog('query  flares.parquet');
     bootStatus('querying flare sites...');
     await refreshFlares();
@@ -665,6 +666,59 @@ function syncLayerOrder() {
         }
         beforeId = mapLayers[0];
     }
+    saveLayerHash();
+}
+
+// Compact layer hash: l=fsp → flares, s2, permits visible (in order)
+// Codes: f=flares s=s2 p=permits m=plumes i=infra w=wells
+const _L = { f: 'flares', s: 's2', p: 'permits', m: 'plumes', i: 'infra', w: 'wells' };
+const _Linv = Object.fromEntries(Object.entries(_L).map(([k, v]) => [v, k]));
+
+function saveLayerHash() {
+    const rows = [...document.querySelectorAll('.toggle-row[data-layer]')];
+    const code = rows.filter(r => layerState[r.dataset.layer]).map(r => _Linv[r.dataset.layer]).join('');
+    updateHash({ l: code });
+}
+
+function restoreLayerHash() {
+    const hash = location.hash.replace(/^#/, '');
+    const match = hash.split('&').find(p => p.startsWith('l='));
+    if (!match) return;
+    const code = decodeURIComponent(match.split('=')[1]);
+    if (!code) return;
+    const names = [...code].map(c => _L[c]).filter(Boolean);
+    if (names.length === 0) return;
+    const allLayers = Object.keys(LAYER_MAP);
+
+    // Apply visibility
+    for (const layer of allLayers) {
+        const visible = names.includes(layer);
+        layerState[layer] = visible;
+        for (const id of (LAYER_MAP[layer] || [])) {
+            try { map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none'); } catch {}
+        }
+    }
+    for (const row of document.querySelectorAll('.toggle-row[data-layer]')) {
+        row.querySelector('input').checked = layerState[row.dataset.layer];
+    }
+
+    // Reorder DOM to match hash order
+    const group = document.querySelector('.filter-group');
+    const rowMap = new Map();
+    for (const row of group.querySelectorAll('.toggle-row[data-layer]')) {
+        rowMap.set(row.dataset.layer, row);
+    }
+    for (const name of names) {
+        const row = rowMap.get(name);
+        if (row) group.appendChild(row);
+    }
+    for (const layer of allLayers) {
+        if (!names.includes(layer)) {
+            const row = rowMap.get(layer);
+            if (row) group.appendChild(row);
+        }
+    }
+    syncLayerOrder();
 }
 
 function setLayerVisibility(layer, visible) {
@@ -702,7 +756,7 @@ function bindUI() {
     for (const row of document.querySelectorAll('.toggle-row[data-layer]')) {
         const layer = row.dataset.layer;
         const cb = row.querySelector('input');
-        cb.addEventListener('change', () => setLayerVisibility(layer, cb.checked));
+        cb.addEventListener('change', () => { setLayerVisibility(layer, cb.checked); saveLayerHash(); });
         row.querySelector('.filter-label').addEventListener('click', () => {
             cb.checked = !cb.checked;
             cb.dispatchEvent(new Event('change'));
