@@ -669,7 +669,7 @@ function syncLayerOrder() {
     saveLayerHash();
 }
 
-// Compact layer hash: l=fsPMiw — all layers in order, lowercase=visible, uppercase=hidden
+// Compact layer hash: l=FSpmIW — all layers in order, UPPERCASE=visible, lowercase=hidden
 // Codes: f=flares s=s2 p=permits m=plumes i=infra w=wells
 const _L = { f: 'flares', s: 's2', p: 'permits', m: 'plumes', i: 'infra', w: 'wells' };
 const _Linv = Object.fromEntries(Object.entries(_L).map(([k, v]) => [v, k]));
@@ -678,7 +678,7 @@ function saveLayerHash() {
     const rows = [...document.querySelectorAll('.toggle-row[data-layer]')];
     const code = rows.map(r => {
         const c = _Linv[r.dataset.layer];
-        return layerState[r.dataset.layer] ? c : c.toUpperCase();
+        return layerState[r.dataset.layer] ? c.toUpperCase() : c;
     }).join('');
     updateHash({ l: code });
 }
@@ -689,7 +689,7 @@ function restoreLayerHash() {
     if (!match) return;
     const code = decodeURIComponent(match.split('=')[1]);
     if (!code) return;
-    const entries = [...code].map(c => ({ layer: _L[c.toLowerCase()], visible: c === c.toLowerCase() })).filter(e => e.layer);
+    const entries = [...code].map(c => ({ layer: _L[c.toLowerCase()], visible: c === c.toUpperCase() })).filter(e => e.layer);
     if (entries.length === 0) return;
 
     // Apply visibility
