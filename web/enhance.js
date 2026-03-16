@@ -192,7 +192,7 @@ export function enhance(flare, map) {
     onUpdate?.(state);
 
     // Module worker — ES module imports work natively
-    worker = new Worker('vendor/s2-flares/worker.js', { type: 'module' });
+    worker = new Worker('vendor/s2-flares/lib/worker.js', { type: 'module' });
 
     worker.onmessage = (e) => {
         const msg = e.data;

@@ -2,9 +2,9 @@ import * as db from './db.js?v=9';
 import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached, getCluster, registerCluster, isEnhancing } from './enhance.js?v=6';
 import * as precomputed from './precomputed.js';
 import * as drawer from './drawer.js?v=3';
-import { searchSTAC } from './vendor/s2-flares/stac.js';
-import { openCOG } from './vendor/s2-flares/cog.js';
-import { wgs84ToUtm, utmToWgs84, utmParams } from './vendor/s2-flares/geo.js';
+import { searchSTAC } from './vendor/s2-flares/lib/stac.js';
+import { openCOG } from './vendor/s2-flares/lib/cog.js';
+import { wgs84ToUtm, utmToWgs84, utmParams } from './vendor/s2-flares/lib/geo.js';
 
 // Boot screen log
 const _bootLog = document.getElementById('boot-log');
