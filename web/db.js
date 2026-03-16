@@ -99,6 +99,24 @@ export function loadTier1() {
     TIER1.forEach(n => _loadParquet(n));
 }
 
+// Load pre-computed S2 detections parquet (optional — may not exist)
+export async function loadS2Precomputed() {
+    await _loadParquet('s2-precomputed');
+}
+
+export async function queryS2Precomputed() {
+    const result = await query(`
+        SELECT cluster_id, date, max_b12, pixels,
+            det_lon, det_lat,
+            cluster_lon, cluster_lat,
+            cluster_max_b12, cluster_avg_b12, cluster_date_count,
+            cluster_persistence, cluster_seasonal
+        FROM 's2-precomputed.parquet'
+        ORDER BY cluster_id, date
+    `);
+    return rows(result);
+}
+
 function bboxDeltas(lat, radiusKm) {
     return {
         dLat: radiusKm / 110.54,

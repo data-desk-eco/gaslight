@@ -1,5 +1,8 @@
 // enhance.js — Sentinel-2 flare enhancement for gaslight
 // Spawns s2-flares Web Worker, streams detections to map, clusters incrementally.
+// Pre-computed bulk detections (from CLI) are checked first via precomputed.js.
+
+import * as precomputed from './precomputed.js';
 
 let worker = null;
 let state = { enhancing: false, progress: null, detections: [], clusters: null, error: null };
@@ -76,6 +79,7 @@ export function loadAllCached() {
 
 // Look up a cluster by id (from cache or live state)
 export function getCluster(id) { return clusterIndex.get(id); }
+export function registerCluster(c) { clusterIndex.set(c.id, c); }
 
 export function setUpdateCallback(fn) { onUpdate = fn; }
 
@@ -96,7 +100,17 @@ function refreshS2Source(map) {
             return enriched;
         })
         : [];
-    const all = [...filtered, ...live];
+    // Add precomputed bulk clusters (excluding any already cached per-flare)
+    const cachedIds = new Set(filtered.map(d => d.id));
+    const liveIds = new Set(live.map(d => d.id));
+    const precomputedAll = precomputed.getAll()
+        .filter(c => !cachedIds.has(c.id) && !liveIds.has(c.id))
+        .map(c => {
+            clusterIndex.set(c.id, c);
+            return c;
+        });
+
+    const all = [...filtered, ...live, ...precomputedAll];
     const fc = {
         type: 'FeatureCollection',
         features: all.map(d => ({
@@ -139,6 +153,19 @@ export function enhance(flare, map) {
             ensureClusterId(c);
         }
         state = { enhancing: false, progress: null, detections: cached.detections, clusters: cached.clusters, error: null };
+        refreshS2Source(map);
+        onUpdate?.(state);
+        return;
+    }
+
+    // Check pre-computed bulk detections (from CLI) before spawning worker
+    const precomputedClusters = precomputed.query(bbox);
+    if (precomputedClusters) {
+        const pcDetections = precomputedClusters.flatMap(c => c.detections);
+        const pcDates = [...new Set(pcDetections.map(d => d.date))];
+        // Save to localStorage so subsequent opens are instant
+        saveCache(p.flare_id, pcDetections, precomputedClusters, pcDates, true);
+        state = { enhancing: false, progress: null, detections: pcDetections, clusters: precomputedClusters, error: null };
         refreshS2Source(map);
         onUpdate?.(state);
         return;

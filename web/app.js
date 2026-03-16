@@ -1,5 +1,6 @@
 import * as db from './db.js?v=9';
-import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached, getCluster, isEnhancing } from './enhance.js?v=5';
+import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached, getCluster, registerCluster, isEnhancing } from './enhance.js?v=6';
+import * as precomputed from './precomputed.js';
 import * as drawer from './drawer.js?v=3';
 import { searchSTAC } from './vendor/s2-flares/stac.js';
 import { openCOG } from './vendor/s2-flares/cog.js';
@@ -171,6 +172,13 @@ map.on('load', async () => {
     loadPermits();
     const cached = loadCachedS2();
     if (cached) bootLog('restore cached s2 enhancements');
+    // Load pre-computed S2 bulk detections (from CLI) in background
+    precomputed.load().then(() => {
+        if (precomputed.isLoaded()) {
+            bootLog(`precomp ${precomputed.getAll().length} S2 clusters loaded`);
+            loadCachedS2(); // refresh map source to include precomputed
+        }
+    });
     updateMapCentre();
     handleDeepLink();
     // Start building operator index in background (ready for first click)
@@ -559,10 +567,15 @@ async function loadWells() {
 
 function loadCachedS2() {
     const clusters = loadAllCached(); // also rebuilds clusterIndex
-    if (clusters.length === 0) return 0;
+    // Merge pre-computed bulk clusters (deduplicated by id)
+    const seen = new Set(clusters.map(c => c.id));
+    const bulk = precomputed.getAll().filter(c => !seen.has(c.id));
+    for (const c of bulk) registerCluster(c);
+    const all = [...clusters, ...bulk];
+    if (all.length === 0) return 0;
     const fc = {
         type: 'FeatureCollection',
-        features: clusters.map(d => ({
+        features: all.map(d => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [d.lon, d.lat] },
             properties: {
@@ -575,7 +588,7 @@ function loadCachedS2() {
         })),
     };
     map.getSource('s2-detections').setData(fc);
-    return clusters.length;
+    return all.length;
 }
 
 function updateMapCentre() {
