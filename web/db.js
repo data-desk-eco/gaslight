@@ -101,12 +101,12 @@ export function loadTier1() {
 
 // Load pre-computed S2 detections parquet (optional — may not exist)
 export async function loadS2Precomputed() {
-    await _loadParquet('s2-precomputed');
+    await _loadParquet('s2');
 }
 
 export async function queryS2Precomputed() {
     const result = await query(`
-        SELECT * FROM 's2-precomputed.parquet' ORDER BY cluster_id, date
+        SELECT * FROM 's2.parquet' ORDER BY cluster_id, date
     `);
     return rows(result);
 }

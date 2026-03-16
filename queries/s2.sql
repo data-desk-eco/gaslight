@@ -16,4 +16,4 @@ COPY (
         -- Quality filters (match burnoff defaults)
         AND cluster_date_count >= 4
         AND cluster_avg_b12 >= 0.85
-) TO 'web/data/s2-precomputed.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+) TO 'web/data/s2.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);

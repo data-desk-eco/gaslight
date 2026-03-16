@@ -53,7 +53,7 @@ S2_START   := 2023-01-01
 S2_CLOUD   := 50
 S2_CONC    := 8
 
-s2: web/data/s2-precomputed.parquet
+s2: web/data/s2.parquet
 
 data/s2-raw.csv:
 	cd ../s2-flares && bun cli.js \
@@ -62,7 +62,7 @@ data/s2-raw.csv:
 		--min-dates 4 --min-avg-b12 0.85 \
 		--out $(CURDIR)/$@
 
-web/data/s2-precomputed.parquet: data/s2-raw.csv queries/s2.sql
+web/data/s2.parquet: data/s2-raw.csv queries/s2.sql
 	duckdb < queries/s2.sql
 	@echo "S2 precomputed: $@ ($$(du -h $@ | cut -f1))"
 
