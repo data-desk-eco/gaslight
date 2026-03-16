@@ -446,36 +446,60 @@ function addLayers() {
     });
 
     // Sentinel-2 detection points — square markers, same color ramp as VNF
-    // Generate a hollow square SDF icon (24×24 with 2px border)
-    const sz = 24, bw = 3;
+    // Two SDF images: solid fill + thin border, rendered as stacked symbol layers
+    const sz = 24, bw = 2;
     const canvas = document.createElement('canvas');
     canvas.width = sz; canvas.height = sz;
     const ctx = canvas.getContext('2d');
+    // Solid square
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, sz, sz);
+    map.addImage('s2-square-fill', { width: sz, height: sz, data: new Uint8Array(ctx.getImageData(0, 0, sz, sz).data) }, { sdf: true });
+    // Hollow square (thin border)
+    ctx.clearRect(0, 0, sz, sz);
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, sz, sz);
     ctx.clearRect(bw, bw, sz - 2 * bw, sz - 2 * bw);
-    map.addImage('s2-square', { width: sz, height: sz, data: ctx.getImageData(0, 0, sz, sz).data }, { sdf: true });
+    map.addImage('s2-square-stroke', { width: sz, height: sz, data: new Uint8Array(ctx.getImageData(0, 0, sz, sz).data) }, { sdf: true });
 
     const s2ColorRamp = [
         'interpolate', ['linear'],
         ['coalesce', ['get', 'max_b12'], 0],
         0.3, '#660800', 0.5, '#991100', 0.7, '#cc2200', 0.9, '#ff4422', 1.2, '#ff8844', 1.5, '#ffcc44'
     ];
+    const s2IconSize = ['interpolate', ['linear'],
+        ['coalesce', ['get', 'max_b12'], 0],
+        0.3, 0.35, 0.6, 0.55, 1.0, 0.8, 1.5, 1.1];
+    // Fill layer (semi-transparent)
     map.addLayer({
-        id: 's2-points',
+        id: 's2-points-fill',
         type: 'symbol',
         source: 's2-detections',
         layout: {
-            'icon-image': 's2-square',
-            'icon-size': ['interpolate', ['linear'],
-                ['coalesce', ['get', 'max_b12'], 0],
-                0.3, 0.35, 0.6, 0.55, 1.0, 0.8, 1.5, 1.1],
+            'icon-image': 's2-square-fill',
+            'icon-size': s2IconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
         },
         paint: {
             'icon-color': s2ColorRamp,
-            'icon-opacity': 0.7,
+            'icon-opacity': 0.25,
+        },
+    });
+    // Stroke layer (thin border)
+    map.addLayer({
+        id: 's2-points',
+        type: 'symbol',
+        source: 's2-detections',
+        layout: {
+            'icon-image': 's2-square-stroke',
+            'icon-size': s2IconSize,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
+        paint: {
+            'icon-color': s2ColorRamp,
+            'icon-opacity': 0.9,
         },
     });
 
@@ -618,7 +642,7 @@ function updateStats() {
 
 const LAYER_MAP = {
     flares: ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer', 'flare-pixels-label'],
-    s2: ['s2-points'],
+    s2: ['s2-points', 's2-points-fill'],
     permits: ['permits-layer'],
     plumes: ['plumes-layer'],
     wells: ['wells-layer'],
