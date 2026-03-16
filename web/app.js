@@ -669,14 +669,17 @@ function syncLayerOrder() {
     saveLayerHash();
 }
 
-// Compact layer hash: l=fsp → flares, s2, permits visible (in order)
+// Compact layer hash: l=fsPMiw — all layers in order, lowercase=visible, uppercase=hidden
 // Codes: f=flares s=s2 p=permits m=plumes i=infra w=wells
 const _L = { f: 'flares', s: 's2', p: 'permits', m: 'plumes', i: 'infra', w: 'wells' };
 const _Linv = Object.fromEntries(Object.entries(_L).map(([k, v]) => [v, k]));
 
 function saveLayerHash() {
     const rows = [...document.querySelectorAll('.toggle-row[data-layer]')];
-    const code = rows.filter(r => layerState[r.dataset.layer]).map(r => _Linv[r.dataset.layer]).join('');
+    const code = rows.map(r => {
+        const c = _Linv[r.dataset.layer];
+        return layerState[r.dataset.layer] ? c : c.toUpperCase();
+    }).join('');
     updateHash({ l: code });
 }
 
@@ -686,13 +689,11 @@ function restoreLayerHash() {
     if (!match) return;
     const code = decodeURIComponent(match.split('=')[1]);
     if (!code) return;
-    const names = [...code].map(c => _L[c]).filter(Boolean);
-    if (names.length === 0) return;
-    const allLayers = Object.keys(LAYER_MAP);
+    const entries = [...code].map(c => ({ layer: _L[c.toLowerCase()], visible: c === c.toLowerCase() })).filter(e => e.layer);
+    if (entries.length === 0) return;
 
     // Apply visibility
-    for (const layer of allLayers) {
-        const visible = names.includes(layer);
+    for (const { layer, visible } of entries) {
         layerState[layer] = visible;
         for (const id of (LAYER_MAP[layer] || [])) {
             try { map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none'); } catch {}
@@ -708,15 +709,9 @@ function restoreLayerHash() {
     for (const row of group.querySelectorAll('.toggle-row[data-layer]')) {
         rowMap.set(row.dataset.layer, row);
     }
-    for (const name of names) {
-        const row = rowMap.get(name);
+    for (const { layer } of entries) {
+        const row = rowMap.get(layer);
         if (row) group.appendChild(row);
-    }
-    for (const layer of allLayers) {
-        if (!names.includes(layer)) {
-            const row = rowMap.get(layer);
-            if (row) group.appendChild(row);
-        }
     }
     syncLayerOrder();
 }
