@@ -50,7 +50,7 @@ db.onLog(bootLog);
 db.onStatus(bootStatus);
 bootLog('gaslight / upstream flaring in the permian');
 bootLog('');
-bootLog('prefetch flares.parquet');
+bootLog('fetch  flares.parquet (prefetch)');
 
 const _css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 const COLORS = {

@@ -475,8 +475,10 @@ function renderTable(data, totalCount) {
     }
     parts.push('</tr></thead><tbody>');
 
-    // Identify coordinate columns for formatting (3 decimal places)
-    const isCoordCol = cols.map(c => /^(lat|lon|longitude|latitude|det_lat|det_lon|cluster_lat|cluster_lon)$/i.test(c));
+    function fmtCell(v) {
+        if (typeof v === 'number' && !Number.isInteger(v)) return v.toFixed(3);
+        return v;
+    }
 
     for (let i = 0, n = data.length; i < n; i++) {
         const row = data[i];
@@ -484,7 +486,7 @@ function renderTable(data, totalCount) {
         for (let c = 0; c < nCols; c++) {
             const v = row[cols[c]];
             if (v == null) { parts.push('<td></td>'); continue; }
-            parts.push(`<td>${esc(isCoordCol[c] ? Number(v).toFixed(3) : v)}</td>`);
+            parts.push(`<td>${esc(fmtCell(v))}</td>`);
         }
         parts.push('</tr>');
     }
