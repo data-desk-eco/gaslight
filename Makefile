@@ -1,7 +1,7 @@
 WORKERS ?= 32
 export WORKERS
 
-.PHONY: all db refresh export vendor serve permits permit-details wells vnf plumes r3 clean help
+.PHONY: all db refresh export vendor serve permits permit-details wells vnf plumes r3 s2 clean help
 
 all: db
 
@@ -46,6 +46,26 @@ data/vnf_profiles/.done:
 	uv run scripts/fetch_vnf.py
 	@touch $@
 
+# --- S2 flare detection (via s2-flares CLI + Lambda) ---
+
+S2_BBOX    := -104.5,30.0,-100.0,33.5
+S2_START   := 2023-01-01
+S2_CLOUD   := 50
+S2_CONC    := 8
+
+s2: web/data/s2-precomputed.parquet
+
+data/s2-raw.csv:
+	cd ../s2-flares && bun cli.js \
+		--bbox $(S2_BBOX) --start $(S2_START) --cloud $(S2_CLOUD) \
+		--mode lambda --concurrency $(S2_CONC) \
+		--min-dates 4 --min-avg-b12 0.85 \
+		--out $(CURDIR)/$@
+
+web/data/s2-precomputed.parquet: data/s2-raw.csv queries/s2.sql
+	duckdb < queries/s2.sql
+	@echo "S2 precomputed: $@ ($$(du -h $@ | cut -f1))"
+
 # --- database ---
 
 refresh:
@@ -74,7 +94,7 @@ serve:
 	uv run python -m http.server 8080 -d web
 
 clean:
-	rm -f data/data.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv
+	rm -f data/data.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/s2-raw.csv
 
 help:
 	@echo "gaslight — dark flaring analysis for the Permian Basin"
@@ -91,6 +111,8 @@ help:
 	@echo "  make vnf             Fetch VNF profiles from EOG"
 	@echo "  make plumes          Fetch Carbon Mapper + IMEO plumes"
 	@echo "  make r3              Fetch RRC R-3 gas processing facilities"
+	@echo ""
+	@echo "  make s2              Run S2 flare detection (Lambda) + export parquet"
 	@echo ""
 	@echo "  make clean           Remove derived data"
 	@echo "  make help            This message"

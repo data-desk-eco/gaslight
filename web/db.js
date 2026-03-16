@@ -106,13 +106,7 @@ export async function loadS2Precomputed() {
 
 export async function queryS2Precomputed() {
     const result = await query(`
-        SELECT cluster_id, date::VARCHAR as date, max_b12, pixels,
-            det_lon, det_lat,
-            cluster_lon, cluster_lat,
-            cluster_max_b12, cluster_avg_b12, cluster_date_count,
-            cluster_persistence, cluster_seasonal::BOOLEAN as cluster_seasonal
-        FROM 's2-precomputed.parquet'
-        ORDER BY cluster_id, date
+        SELECT * FROM 's2-precomputed.parquet' ORDER BY cluster_id, date
     `);
     return rows(result);
 }
