@@ -624,6 +624,7 @@ function loadCachedS2() {
         })),
     };
     map.getSource('s2-detections').setData(fc);
+    drawer.setData('s2', fc.features);
     return all.length;
 }
 
@@ -648,6 +649,23 @@ const LAYER_MAP = {
     wells: ['wells-layer'],
     infra: ['infra-layer']
 };
+
+// Sync map layer z-order to match the legend DOM order (top of list = rendered on top)
+function syncLayerOrder() {
+    const rows = [...document.querySelectorAll('.toggle-row[data-layer]')];
+    // Reverse: first in DOM should render on top, so move it last (MapLibre draws later layers on top)
+    const layerOrder = rows.map(r => r.dataset.layer).reverse();
+    // Move each group's map layers in order, stacking them above the previous group
+    let beforeId = undefined; // undefined = move to top of layer stack
+    for (const group of layerOrder) {
+        const mapLayers = LAYER_MAP[group];
+        if (!mapLayers) continue;
+        for (const id of mapLayers) {
+            try { map.moveLayer(id, beforeId); } catch {}
+        }
+        beforeId = mapLayers[0];
+    }
+}
 
 function setLayerVisibility(layer, visible) {
     layerState[layer] = visible;
@@ -688,6 +706,25 @@ function bindUI() {
         row.querySelector('.filter-label').addEventListener('click', () => {
             cb.checked = !cb.checked;
             cb.dispatchEvent(new Event('change'));
+        });
+        // Drag-to-reorder
+        row.draggable = true;
+        row.addEventListener('dragstart', e => {
+            e.dataTransfer.effectAllowed = 'move';
+            row.classList.add('dragging');
+        });
+        row.addEventListener('dragend', () => {
+            row.classList.remove('dragging');
+            syncLayerOrder();
+        });
+        row.addEventListener('dragover', e => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const dragging = document.querySelector('.toggle-row.dragging');
+            if (!dragging || dragging === row) return;
+            const rect = row.getBoundingClientRect();
+            const after = e.clientY > rect.top + rect.height / 2;
+            row.parentNode.insertBefore(dragging, after ? row.nextSibling : row);
         });
     }
 

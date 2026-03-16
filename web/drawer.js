@@ -1,7 +1,8 @@
 const _css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 
 const LAYERS = {
-    flares:  { label: 'Flares',  color: () => _css('--color-flare'),  latCol: 'lat',       lonCol: 'lon',       idCol: 'flare_id' },
+    flares:  { label: 'VNF',     color: () => _css('--color-flare'),  latCol: 'lat',       lonCol: 'lon',       idCol: 'flare_id' },
+    s2:      { label: 'S2',      color: () => _css('--color-flare'),  latCol: 'lat',       lonCol: 'lon',       idCol: 'id' },
     permits: { label: 'Permits', color: () => _css('--color-permit'), latCol: 'latitude',  lonCol: 'longitude',  idCol: null },
     plumes:  { label: 'Plumes',  color: () => _css('--color-plume'),  latCol: 'latitude',  lonCol: 'longitude',  idCol: 'plume_id' },
     wells:   { label: 'Wells',   color: () => _css('--color-well'),   latCol: 'latitude', lonCol: 'longitude', idCol: 'api' },
@@ -10,6 +11,7 @@ const LAYERS = {
 
 const TAB_MAP = {
     'flares-layer': 'flares', 'flare-pixels-fill': 'flares', 'flare-pixels-layer': 'flares',
+    's2-points': 's2', 's2-points-fill': 's2',
     'permits-layer': 'permits', 'plumes-layer': 'plumes', 'wells-layer': 'wells', 'infra-layer': 'infra',
 };
 
