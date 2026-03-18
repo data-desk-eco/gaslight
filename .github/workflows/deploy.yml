@@ -27,11 +27,11 @@ jobs:
         run: |
           mkdir -p dist
           cp web/index.html web/app.js web/db.js web/drawer.js web/enhance.js web/precomputed.js web/style.css dist/
-          cp -r web/vendor dist/vendor
-          cp -r web/data dist/data
+          cp -rL web/vendor dist/vendor
+          cp -rL web/data dist/data
 
-      - uses: actions/configure-pages@v4
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
       - id: deployment
