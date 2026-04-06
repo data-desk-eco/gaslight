@@ -345,6 +345,20 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
 }
 .status-badge.excluded { color: var(--color-excluded); border-color: var(--color-excluded); background: rgba(102, 102, 102, 0.15); }
 .status-badge.s2 { color: var(--color-flare); border-color: var(--color-flare); background: rgba(255, 170, 68, 0.15); font-variant-numeric: tabular-nums; }
+.status-badge.warn { color: #ffc857; border-color: #ffc857; background: rgba(255, 200, 87, 0.12); }
+
+/* --- Glint warning callout (S2 cluster detail) --- */
+.glint-notice {
+    margin: 6px 0 4px;
+    padding: 8px 10px;
+    border-left: 2px solid #ffc857;
+    background: rgba(255, 200, 87, 0.08);
+    font-size: var(--font-xs);
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.4;
+}
+.glint-notice strong { color: #ffc857; }
+.glint-notice code { font-variant-numeric: tabular-nums; opacity: 0.85; }
 .detail-title-row { display: flex; align-items: center; gap: 8px; }
 #detail-badge { flex-shrink: 0; }
 

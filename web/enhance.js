@@ -18,7 +18,9 @@ function clusterHash(lat, lon) {
     return (h >>> 0).toString(36);
 }
 
-function ensureClusterId(c) { ensureClusterId(c); }
+function ensureClusterId(c) {
+    if (!c.id) c.id = clusterHash(c.lat, c.lon);
+}
 
 function inBbox(d, bbox) {
     return d.lon >= bbox[0] && d.lon <= bbox[2] && d.lat >= bbox[1] && d.lat <= bbox[3];

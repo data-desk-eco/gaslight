@@ -25,6 +25,10 @@ export async function load() {
                     date_count: row.cluster_date_count,
                     persistence: row.cluster_persistence,
                     seasonal: row.cluster_seasonal,
+                    // Glint discriminator fields (null on parquets predating the b11/sun pipeline)
+                    median_b12_b11_ratio: row.cluster_median_b12_b11_ratio ?? null,
+                    min_sun_elevation: row.cluster_min_sun_elevation ?? null,
+                    likely_glint: row.cluster_likely_glint ?? null,
                     detection_count: 0,
                     detections: [],
                 });
@@ -33,7 +37,10 @@ export async function load() {
             c.detections.push({
                 date: row.date,
                 max_b12: row.max_b12,
+                peak_b11: row.peak_b11 ?? null,
                 pixels: row.pixels,
+                sun_elevation: row.sun_elevation ?? null,
+                sun_azimuth: row.sun_azimuth ?? null,
                 lon: row.det_lon,
                 lat: row.det_lat,
             });

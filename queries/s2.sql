@@ -5,11 +5,13 @@ SET VARIABLE nm_border_lon = -103.064;  -- TX-NM border longitude (above 32°N)
 
 COPY (
     SELECT
-        cluster_id, date::VARCHAR AS date, max_b12, pixels,
+        cluster_id, date::VARCHAR AS date, max_b12, peak_b11, pixels,
+        sun_elevation, sun_azimuth,
         det_lon, det_lat,
         cluster_lon, cluster_lat,
         cluster_max_b12, cluster_avg_b12, cluster_date_count,
-        cluster_persistence, cluster_seasonal
+        cluster_persistence, cluster_seasonal,
+        cluster_median_b12_b11_ratio, cluster_min_sun_elevation, cluster_likely_glint
     FROM 'data/s2-raw.csv'
     WHERE -- Clip to Texas portion of Permian (exclude NM corner)
         (cluster_lat <= 32.0 OR cluster_lon >= getvariable('nm_border_lon'))

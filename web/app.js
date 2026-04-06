@@ -1,5 +1,5 @@
 import * as db from './db.js?v=9';
-import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached, getCluster, registerCluster, isEnhancing } from './enhance.js?v=6';
+import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached, getCluster, registerCluster, isEnhancing } from './enhance.js?v=7';
 import * as precomputed from './precomputed.js';
 import * as drawer from './drawer.js?v=3';
 import { searchSTAC } from './vendor/s2-flares/lib/stac.js';
@@ -1562,7 +1562,7 @@ function showEnhanceDetail(feature) {
                 list.innerHTML = s.clusters.map(c =>
                     `<div class="enhance-cluster" data-id="${c.id}">
                         <span class="cluster-dot" style="background:${b12Color(c.max_b12)}"></span>
-                        B12 ${c.max_b12.toFixed(2)} · ${c.detection_count} det · ${c.first_date}${c.first_date !== c.last_date ? ` – ${c.last_date}` : ''}
+                        B12 ${c.max_b12.toFixed(2)} · ${c.detection_count} det · ${c.first_date}${c.first_date !== c.last_date ? ` – ${c.last_date}` : ''}${c.likely_glint === true ? ' · <span style="color:#ffc857">glint?</span>' : ''}
                     </div>`
                 ).join('');
                 list.querySelectorAll('.enhance-cluster').forEach(el => {
@@ -1581,6 +1581,20 @@ function showEnhanceDetail(feature) {
     enhance(feature, map);
 }
 
+// Render an inline warning callout for S2 clusters that look like sun glint or
+// otherwise warrant manual review. Returns '' if nothing to flag.
+function glintNoticeHtml(cluster) {
+    const notes = [];
+    if (cluster.likely_glint === true) {
+        const ratio = cluster.median_b12_b11_ratio?.toFixed(2) ?? '?';
+        notes.push(`<strong>Likely sun glint.</strong> Median peak B12/B11 ratio <code>${ratio}</code> — real flares emit at temperatures where this ratio exceeds 1.15. A solar reflection off metal is the typical cause at this signal level.`);
+    } else if (cluster.persistence != null && cluster.persistence > 1.0) {
+        notes.push(`<strong>Review me.</strong> Persistence <code>${cluster.persistence.toFixed(2)}</code> &gt; 1 — more detection days than cloud-free observations. Bright targets that punch through cloud screening (e.g. metal glint) often show this pattern.`);
+    }
+    if (notes.length === 0) return '';
+    return `<div class="glint-notice">${notes.join('<br>')}</div>`;
+}
+
 function showS2ClusterDetail(cluster) {
     closeS2Pixels();
     updateHash({ s2: cluster.id });
@@ -1594,6 +1608,7 @@ function showS2ClusterDetail(cluster) {
         </div>`).join('');
 
     openDetail(`S2 Source ${cluster.id}`, cluster.lat, cluster.lon, [
+        glintNoticeHtml(cluster),
         card.stats([
             { value: cluster.max_b12.toFixed(2), unit: 'peak B12' },
             { value: cluster.avg_b12.toFixed(2), unit: 'mean B12' },
@@ -1601,13 +1616,21 @@ function showS2ClusterDetail(cluster) {
         card.fields(
             ['First detected', formatDate(cluster.first_date)],
             ['Last detected', formatDate(cluster.last_date)],
+            cluster.median_b12_b11_ratio != null && ['Median B12 / B11', cluster.median_b12_b11_ratio.toFixed(2)],
+            cluster.min_sun_elevation != null && ['Min sun elevation', `${cluster.min_sun_elevation.toFixed(0)}°`],
+            cluster.persistence != null && ['Persistence', cluster.persistence.toFixed(2)],
         ),
         card.section('s2-permit-section'),
         `<div id="s2-event-list" class="s2-event-list">${eventListHtml}</div>`,
     ]);
     const badge = $('detail-badge');
-    badge.className = 'status-badge s2';
-    badge.textContent = `${cluster.detection_count} det`;
+    if (cluster.likely_glint === true) {
+        badge.className = 'status-badge warn';
+        badge.textContent = 'likely glint';
+    } else {
+        badge.className = 'status-badge s2';
+        badge.textContent = `${cluster.detection_count} det`;
+    }
     badge.classList.remove('hidden');
     $('overlap-nav').classList.add('hidden');
 
