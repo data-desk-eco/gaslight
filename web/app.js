@@ -180,7 +180,6 @@ map.on('load', async () => {
         loadCachedS2();
     }
     updateMapCentre();
-    handleDeepLink();
     // Start building operator index in background (ready for first click)
     bootLog('index  operator attribution (background)');
     db.buildOperatorIndex();
@@ -231,6 +230,7 @@ map.on('load', async () => {
         }
     });
 
+    handleDeepLink();
 });
 
 function syncDrawer(f) {
