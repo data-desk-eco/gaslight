@@ -7,3 +7,5 @@ web/vendor/
 node_modules/
 .venv/
 .superpowers/
+analysis/
+.playwright-mcp/
