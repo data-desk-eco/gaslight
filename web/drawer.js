@@ -53,12 +53,18 @@ const _coords = {};
 let onRowClick = null;
 let _queryFn = null;
 let _onSearch = null;
+let _onState = null;
 
-export function init(mapInstance, { onSelect, onQuery, onSearch } = {}) {
+function emitState() {
+    if (_onState) _onState({ tab: drawerWidth >= MIN_WIDTH ? activeTab : null, q: searchTerm || null });
+}
+
+export function init(mapInstance, { onSelect, onQuery, onSearch, onState } = {}) {
     map = mapInstance;
     onRowClick = onSelect || null;
     _queryFn = onQuery || null;
     _onSearch = onSearch || null;
+    _onState = onState || null;
     createDOM();
     bindDrag();
     bindLayerToggles();
@@ -103,6 +109,7 @@ function createDOM() {
         searchTerm = searchEl.value.trim();
         if (_onSearch) _onSearch(activeTab, searchTerm);
         refreshTable();
+        emitState();
     });
     headerEl.appendChild(searchEl);
 
@@ -125,6 +132,24 @@ function createDOM() {
 
     document.body.appendChild(drawerEl);
     document.body.appendChild(handleEl);
+}
+
+// Open drawer from a deep link: set width, active tab, search term.
+// Caller is responsible for toggling the underlying layer visible first.
+export function openAt({ tab, q, width } = {}) {
+    if (width && width >= MIN_WIDTH) setDrawerWidth(width);
+    updateTabs();
+    if (tab && LAYERS[tab] && getVisibleLayers().includes(tab)) {
+        activeTab = tab;
+        selectedId = null; selectedIdx = -1;
+        updateTabs();
+    }
+    if (q != null && searchEl) {
+        searchEl.value = q;
+        searchTerm = q;
+        if (_onSearch) _onSearch(activeTab, searchTerm);
+    }
+    refreshTable();
 }
 
 function setDrawerWidth(w) {
@@ -195,6 +220,7 @@ function bindDrag() {
         } else if (drawerWidth >= MIN_WIDTH) {
             refreshTable();
         }
+        emitState();
     };
 
     handleEl.addEventListener('pointerup', endDrag);
@@ -354,6 +380,7 @@ function updateTabs() {
             selectedId = null; selectedIdx = -1;
             updateTabs();
             refreshTable();
+            emitState();
         });
         tabBarEl.appendChild(tab);
     }

@@ -1,7 +1,7 @@
 import * as db from './db.js?v=9';
 import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached, getCluster, registerCluster, isEnhancing } from './enhance.js?v=7';
 import * as precomputed from './precomputed.js';
-import * as drawer from './drawer.js?v=3';
+import * as drawer from './drawer.js?v=5';
 import { searchSTAC } from './vendor/s2-flares/lib/stac.js';
 import { openCOG } from './vendor/s2-flares/lib/cog.js';
 import { wgs84ToUtm, utmToWgs84, utmParams } from './vendor/s2-flares/lib/geo.js';
@@ -202,6 +202,9 @@ map.on('load', async () => {
             }
             const fc = await db.queryMapSearch(layer, term);
             if (fc) source.setData(fc);
+        },
+        onState: ({ tab, q }) => {
+            updateHash({ data: tab || undefined, q: q || undefined });
         },
         onSelect: (layer, row) => {
             const info = {
@@ -864,23 +867,52 @@ function bindUI() {
     });
 }
 
-// Hash param helpers — coexist with MapLibre's #map=zoom/lat/lon
+// Hash param helpers — coexist with MapLibre's #map=zoom/lat/lon.
+// Merge semantics: keys in `params` are overwritten (null/undefined removes),
+// any existing keys not mentioned are preserved.
 function updateHash(params) {
     const hash = location.hash.replace(/^#/, '');
-    const mapPart = hash.split('&').find(p => p.startsWith('map='));
-    const parts = mapPart ? [mapPart] : [];
-    for (const [k, v] of Object.entries(params)) {
-        if (v != null) parts.push(`${k}=${encodeURIComponent(v)}`);
+    const existing = {};
+    const order = [];
+    for (const part of hash.split('&')) {
+        const eq = part.indexOf('=');
+        if (eq <= 0) continue;
+        const k = part.slice(0, eq);
+        if (!(k in existing)) order.push(k);
+        existing[k] = part.slice(eq + 1); // keep raw (already encoded)
     }
+    for (const [k, v] of Object.entries(params)) {
+        if (v == null) {
+            delete existing[k];
+        } else {
+            if (!(k in existing)) order.push(k);
+            existing[k] = encodeURIComponent(v);
+        }
+    }
+    const parts = order.filter(k => k in existing).map(k => `${k}=${existing[k]}`);
     history.replaceState(null, '', location.pathname + location.search + '#' + parts.join('&'));
 }
 
-function handleDeepLink() {
+// Explicitly clear the feature-selection params (keep drawer/q/l/map).
+const SELECTION_KEYS = { vnf: null, mode: null, plume: null, s2: null };
+
+async function handleDeepLink() {
     const hash = location.hash.replace(/^#/, '');
     const params = {};
     for (const part of hash.split('&')) {
         const eq = part.indexOf('=');
         if (eq > 0) params[part.slice(0, eq)] = decodeURIComponent(part.slice(eq + 1));
+    }
+
+    // Drawer state — independent of feature selection, honour alongside
+    if (params.data) {
+        const layer = params.data;
+        const cb = document.querySelector(`.toggle-row[data-layer="${layer}"] input`);
+        if (cb && !cb.checked) {
+            cb.checked = true;
+            cb.dispatchEvent(new Event('change'));
+        }
+        drawer.openAt({ tab: layer, q: params.q || '', width: 480 });
     }
 
     if (params.s2) {
@@ -890,6 +922,28 @@ function handleDeepLink() {
             map.flyTo({ center: [cluster.lon, cluster.lat], zoom: 16 });
             showS2ClusterDetail(cluster);
         }
+        return;
+    }
+
+    if (params.plume) {
+        const cb = document.querySelector('.toggle-row[data-layer="plumes"] input');
+        if (cb && !cb.checked) {
+            cb.checked = true;
+            cb.dispatchEvent(new Event('change'));
+        }
+        const data = await db.queryPlumes();
+        _originalSourceData.plumes = data;
+        map.getSource('plumes').setData(data);
+        drawer.setData('plumes', data.features);
+        const feature = data.features.find(f => String(f.properties.plume_id) === params.plume);
+        if (!feature) return;
+        const [lon, lat] = feature.geometry.coordinates;
+        updateHash({ plume: params.plume });
+        map.flyTo({ center: [lon, lat], zoom: 14 });
+        feature.layer = { id: 'plumes-layer' };
+        overlappingFeatures = [feature];
+        overlapIndex = 0;
+        showFeatureDetail(feature);
         return;
     }
 
@@ -1007,7 +1061,7 @@ function deactivateSelection() {
 function closeDetail() {
     removeS2Badge();
     closeS2Pixels();
-    updateHash({});
+    updateHash(SELECTION_KEYS);
     $('detail-panel').classList.add('hidden');
     deactivateSelection();
     overlappingFeatures = [];
@@ -1171,10 +1225,13 @@ function showFeatureDetail(feature) {
         if (cluster) showS2ClusterDetail(cluster);
     } else {
         if (layer.startsWith('flare')) showFlareDetail(feature);
+        else if (layer.startsWith('plumes-')) {
+            updateHash({ plume: p.plume_id });
+            showPlumeDetail(feature);
+        }
         else {
-            updateHash({});
+            updateHash(SELECTION_KEYS);
             if (layer.startsWith('permits-')) showPermitDetail(feature);
-            else if (layer.startsWith('plumes-')) showPlumeDetail(feature);
             else if (layer.startsWith('wells-')) showWellDetail(feature);
             else if (layer.startsWith('infra-')) showInfraDetail(feature);
         }
