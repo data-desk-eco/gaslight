@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import textwrap
 import zipfile
@@ -24,6 +25,16 @@ import duckdb
 import pandas as pd
 import yaml
 
+# openpyxl rejects Excel's illegal chars (most control chars). Strip them
+# from any string column before writing xlsx.
+_ILLEGAL_XLSX = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def sanitise_for_xlsx(df: pd.DataFrame) -> pd.DataFrame:
+    for col in df.select_dtypes(include=["object", "string"]).columns:
+        df[col] = df[col].astype(str).str.replace(_ILLEGAL_XLSX, "", regex=True)
+    return df
+
 
 def run_query(conn: duckdb.DuckDBPyConnection, sql: str) -> pd.DataFrame:
     return conn.execute(sql).fetch_df()
@@ -31,7 +42,7 @@ def run_query(conn: duckdb.DuckDBPyConnection, sql: str) -> pd.DataFrame:
 
 def export_table(
     conn: duckdb.DuckDBPyConnection, spec: dict, out_dir: Path
-) -> tuple[int, Path, Path]:
+) -> tuple[int, Path, Path | None]:
     name = spec["name"]
     table = spec["table"]
     where = spec.get("where")
@@ -49,18 +60,52 @@ def export_table(
     conn.execute(
         f"COPY ({select}) TO '{parquet_path}' (FORMAT PARQUET)"
     )
-    # Then read back via pandas for the xlsx + rowcount
-    df = run_query(conn, select)
+    rowcount = conn.execute(
+        f"SELECT count(*) FROM read_parquet('{parquet_path}')"
+    ).fetchone()[0]
 
-    # Excel has a 1,048,576-row limit. Fall back to CSV if we'd blow it.
-    if len(df) <= 1_000_000:
-        xlsx_path = out_dir / f"{name}.xlsx"
-        df.to_excel(xlsx_path, index=False, sheet_name=name[:31])
+    # Skip xlsx if the spec says so (huge tables) or it'd blow Excel's limit.
+    xlsx_path: Path | None = None
+    if spec.get("no_xlsx") or rowcount > 1_000_000:
+        pass
     else:
-        xlsx_path = out_dir / f"{name}.csv"
-        df.to_csv(xlsx_path, index=False)
+        df = run_query(conn, select)
+        xlsx_path = out_dir / f"{name}.xlsx"
+        sanitise_for_xlsx(df).to_excel(xlsx_path, index=False, sheet_name=name[:31])
 
-    return len(df), parquet_path, xlsx_path
+    return rowcount, parquet_path, xlsx_path
+
+
+def render_bootstrap(exports: list[dict]) -> str:
+    """Emit a bootstrap.sql that aliases original schema.table names to the
+    bundled parquets, so the per-claim SQL files run as-shipped."""
+    lines = [
+        "-- Bootstrap: creates views that let the queries in queries/ run",
+        "-- against the parquets in data/ without needing the full gaslight",
+        "-- database. Run this once per DuckDB session before any query.",
+        "--",
+        "-- Usage:",
+        "--   duckdb -c \".read bootstrap.sql\" -c \".read queries/04_permits_fang.sql\"",
+        "",
+    ]
+    # Group by the schema implied by parquet_alias to emit CREATE SCHEMA
+    schemas = set()
+    for e in exports:
+        if not (alias := e.get("parquet_alias")):
+            continue
+        if "." in alias:
+            schemas.add(alias.split(".", 1)[0])
+    for schema in sorted(schemas):
+        lines.append(f"CREATE SCHEMA IF NOT EXISTS {schema};")
+    lines.append("")
+    for e in exports:
+        if not (alias := e.get("parquet_alias")):
+            continue
+        lines.append(
+            f"CREATE OR REPLACE VIEW {alias} AS "
+            f"SELECT * FROM read_parquet('data/{e['name']}.parquet');"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def format_result(df: pd.DataFrame) -> str:
@@ -108,15 +153,19 @@ def render_readme(
         2. **Reproduce from Excel.** Each claim has a plain-English recipe
            ("open this file, filter this column"). This is the fastest route
            for simple counts and filters.
-        3. **Re-run the SQL yourself.** The `queries/` folder contains one
-           `.sql` file per claim. If you install [DuckDB]
-           (https://duckdb.org/docs/installation), you can run each query
-           against the bundled parquets:
+        3. **Re-run the SQL yourself.** Install [DuckDB]
+           (https://duckdb.org/docs/installation) — it's a single binary
+           with no dependencies — then from the package root run:
+
            ```
-           duckdb -c ".open :memory:" \\
-                  -c "CREATE VIEW permits AS SELECT * FROM read_parquet('data/permits.parquet');" \\
-                  -c "$(cat queries/01_permit_count_fang.sql)"
+           duckdb -c ".read bootstrap.sql" -c ".read queries/04_permits_fang.sql"
            ```
+
+           `bootstrap.sql` sets up the schema aliases so the queries find the
+           bundled parquets. A small number of claims are marked **requires
+           full database** — their queries reference tables too big to
+           bundle (VIIRS detections, full production history); only routes 1
+           and 2 apply there.
 
         The article's figures are a snapshot taken at writing time. The
         database keeps being updated with new permit filings, plume
@@ -157,6 +206,15 @@ def render_readme(
             lines.append("")
             lines.append("> " + cr["quote"].strip().replace("\n", "\n> "))
             lines.append("")
+            if cr.get("requires_full_db"):
+                lines.append(
+                    "> ⚠️ **Requires full database.** This query references "
+                    "a table too large to bundle (VIIRS detections or "
+                    "lease-level production). You can verify via the "
+                    "computed value and the Excel recipe, but not by "
+                    "re-running the SQL against the bundle."
+                )
+                lines.append("")
             lines.append("**Computed value:** " + cr["result_md"])
             lines.append("")
             if cr.get("howto"):
@@ -192,7 +250,8 @@ def build(manifest_path: Path, db_path: Path, out_zip: Path) -> None:
         print(f"  exporting {spec['name']}…", flush=True)
         rows, parquet, xlsx = export_table(conn, spec, build_dir / "data")
         exports.append({**spec, "rowcount": rows})
-        print(f"    → {rows:,} rows → {xlsx.name}, {parquet.name}")
+        fmt = f"{xlsx.name}, {parquet.name}" if xlsx else f"{parquet.name} only"
+        print(f"    → {rows:,} rows → {fmt}")
 
     # --- Claims ------------------------------------------------------------
     claim_results: list[dict] = []
@@ -225,7 +284,8 @@ def build(manifest_path: Path, db_path: Path, out_zip: Path) -> None:
             "result_md": format_result(df),
         })
 
-    # --- README ------------------------------------------------------------
+    # --- Bootstrap + README ------------------------------------------------
+    (build_dir / "bootstrap.sql").write_text(render_bootstrap(exports))
     readme = render_readme(manifest, claim_results, exports)
     (build_dir / "README.md").write_text(readme)
 
