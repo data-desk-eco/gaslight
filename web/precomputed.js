@@ -1,7 +1,7 @@
 // precomputed.js — Pre-computed S2 flare detections (from CLI bulk runs).
 // Loaded as a parquet via DuckDB, queried with SQL like all other gaslight data.
 
-import * as db from './db.js?v=9';
+import * as db from './db.js?v=10';
 
 let _clusters = null; // Map<clusterId, clusterObject>
 let _loaded = false;

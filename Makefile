@@ -46,24 +46,30 @@ data/vnf_profiles/.done:
 	uv run scripts/fetch_vnf.py
 	@touch $@
 
-# --- S2 flare detection (via s2-flares CLI + Lambda) ---
+# --- S2 flare detection (via openflaring, S2-only) ---
 
-S2_BBOX    := -104.5,30.0,-100.0,33.5
-S2_START   := 2023-01-01
-S2_CLOUD   := 50
-S2_CONC    := 8
+S2_BBOX     := -104.5,30.0,-100.0,33.5
+S2_START    := 2021-01-01
+S2_SCORE    := 1.0          # unanchored-cluster score gate, applied in s2.sql
+                            # (osm-/ogim-anchored clusters are always kept)
+OPENFLARING := $(HOME)/Tools/openflaring
 
 s2: web/data/s2.parquet
 
-data/s2-raw.csv:
-	cd ../s2-flares && bun cli.js \
-		--bbox $(S2_BBOX) --start $(S2_START) --cloud $(S2_CLOUD) \
-		--mode lambda --concurrency $(S2_CONC) \
-		--min-dates 4 --min-avg-b12 0.85 \
+# Raw openflaring detections: S2-only (OSM/OGIM anchors, no Sentinel-3), keep
+# everything (--score-threshold 0) — the quality gate is applied later in
+# s2.sql so it can be re-tuned without re-running detection.
+data/s2-of.parquet:
+	cd $(OPENFLARING) && uv run openflaring \
+		--bbox $(S2_BBOX) --start $(S2_START) \
+		--no-s3 --score-threshold 0 \
 		--out $(CURDIR)/$@
 
-web/data/s2.parquet: data/s2-raw.csv queries/s2.sql
-	duckdb < queries/s2.sql
+web/data/s2.parquet: data/s2-of.parquet queries/s2.sql
+	duckdb \
+		-c "SET VARIABLE of_parquet='$(CURDIR)/data/s2-of.parquet'" \
+		-c "SET VARIABLE score_gate=$(S2_SCORE)" \
+		-c ".read queries/s2.sql"
 	@echo "S2 precomputed: $@ ($$(du -h $@ | cut -f1))"
 
 # --- database ---
@@ -112,7 +118,7 @@ serve:
 	uv run python -m http.server 8080 -d web
 
 clean:
-	rm -f data/data.duckdb dist/gaslight.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/s2-raw.csv
+	rm -f data/data.duckdb dist/gaslight.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/s2-of.parquet
 
 help:
 	@echo "gaslight — dark flaring analysis for the Permian Basin"
