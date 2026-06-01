@@ -1,0 +1,475 @@
+# Single source of truth for the gaslight shareable-dataset documentation.
+#
+# scripts/build_dictionary.py reads this file, introspects dist/gaslight.duckdb
+# for the actual columns/types/row-counts, and generates:
+#   - docs/data-dictionary/README.md       (index + overview)
+#   - docs/data-dictionary/<table>.md       (one per table)
+#   - dist/gaslight.duckdb  _dictionary, _sources  (in-DB metadata tables)
+#
+# Edit the prose here; never hand-edit the generated markdown. If a column
+# exists in the DB but is missing below (or vice-versa), the build warns.
+
+dataset:
+  title: Permian Basin Flaring Dataset
+  subtitle: Satellite-observed flaring, state permits, production, and methane plumes
+  intro: |
+    This is the data behind *gaslight*, an analysis of natural-gas flaring in
+    the Permian Basin of West Texas. It links four independent kinds of evidence
+    about where and how much gas is being burned or vented:
+
+    1. **What satellites see** — VIIRS Nightfire infrared flare detections and
+       Sentinel-2 shortwave-infrared detections.
+    2. **What operators are permitted to do** — Texas Railroad Commission (RRC)
+       Statewide Rule 32 flaring/venting exception permits.
+    3. **What operators report** — RRC monthly lease-level gas disposition
+       (how much gas was flared/vented) and production volumes, plus the wells,
+       operators, and gas gatherers/purchasers tied to each lease.
+    4. **What methane sensors detect** — Carbon Mapper and UNEP IMEO plume
+       observations.
+
+    The dataset is a single DuckDB database, `gaslight.duckdb`. Every table is a
+    plain, documented table — open it with the free DuckDB binary (or read the
+    tables straight into pandas/R/QGIS) and start querying.
+  key_caveat: |
+    **Reported vs. observed flaring — read this first.** The flaring *volumes*
+    in this dataset (`monthly_flaring`, and the `flared_mcf` / `flaring_intensity_pct`
+    columns derived from them) are **self-reported by operators to the RRC**.
+    The satellite layers (`flare_sites`, `flare_detections`, `s2_detections`)
+    are **independent observations** of combustion from space. These two do not
+    always agree — a flare can burn brightly on satellite imagery in a month an
+    operator reports little or no flaring. That gap is the central finding of the
+    reporting this dataset supports; treat the two families of evidence as
+    *separate*, not interchangeable.
+  scope: |
+    **Geography.** Everything is clipped to the Permian Basin bounding box:
+    latitude 30.0–33.5°N, longitude -104.5 to -100.0°W. Above 32°N, points must
+    sit east of -103.064°W (the Texas–New Mexico border) so the dataset is
+    Texas-only. The one exception is `operators`, an RRC-wide name lookup with no
+    geography.
+
+    **Time.** Time-series tables (`flare_detections`, `monthly_flaring`) and the
+    rollups derived from them cover **2021-01-01 onward**, matching the satellite
+    analysis window. Longer RRC history exists upstream and the window is a single
+    pipeline setting that can be widened on request.
+  method_notes: |
+    - **375 m spatial matching.** Flares are linked to wells/permits using a fixed
+      375 m radius — the half-width of a VIIRS M-band pixel (750 m). A ±0.0034°
+      lat/lon bounding box is the cheap pre-filter.
+    - **No imputation.** Missing values stay missing. Nothing is modelled, filled,
+      or guessed; if a permit has no effective date or a lease has no production in
+      a month, the cell is null/absent.
+    - **Coordinates** are decimal degrees, WGS84. There is no geometry/WKB column —
+      use `latitude`/`longitude` directly.
+    - **Lease numbers** are zero-padded to 6 digits everywhere, so `lease_district`
+      + `lease_number` joins cleanly across tables.
+  how_to_use: |
+    Install DuckDB (a single dependency-free binary, <https://duckdb.org/docs/installation>)
+    and open the file:
+
+    ```sh
+    duckdb gaslight.duckdb
+    ```
+
+    ```sql
+    -- list tables
+    SHOW TABLES;
+    -- in-database column dictionary
+    SELECT * FROM _dictionary WHERE table_name = 'wells';
+    -- the brightest flare sites by total radiant heat
+    SELECT flare_id, lat, lon, detection_days, total_rh_mw
+    FROM flare_sites ORDER BY total_rh_mw DESC LIMIT 20;
+    ```
+
+    Prefer another tool? Every table also reads directly into pandas
+    (`duckdb.sql("SELECT * FROM flare_sites").df()`), R, or QGIS (via the
+    latitude/longitude columns).
+
+# Upstream sources. `id` is referenced by each table's `source:` list.
+sources:
+  - id: eog_vnf
+    name: VIIRS Nightfire (VNF)
+    provider: Earth Observation Group, Payne Institute, Colorado School of Mines
+    url: https://eogdata.mines.edu/products/vnf/
+    license: Free for use with attribution to the Earth Observation Group.
+    retrieval: Per-site nightly profiles fetched via scripts/fetch_vnf.py.
+  - id: s2
+    name: Sentinel-2 SWIR flare detection
+    provider: Copernicus / ESA imagery, processed by the s2-flares library
+    url: https://dataspace.copernicus.eu/
+    license: Copernicus Sentinel data, free and open. Detections are derived products.
+    retrieval: Computed from Sentinel-2 L2A B11/B12 bands (s2-flares CLI).
+  - id: rrc_swr32
+    name: RRC Statewide Rule 32 flaring/venting permits
+    provider: Texas Railroad Commission
+    url: https://www.rrc.texas.gov/
+    license: Texas public records.
+    retrieval: Scraped from the RRC SWR 32 web database (scripts/scrape_permits.py, scrape_permit_details.py).
+  - id: rrc_mft
+    name: RRC well, operator, and P-4 gatherer records
+    provider: Texas Railroad Commission (Mainframe File Transfer, EBCDIC)
+    url: https://www.rrc.texas.gov/resource-center/research/data-sets-available-for-download/
+    license: Texas public records.
+    retrieval: Downloaded and parsed from RRC EBCDIC files (scripts/download_rrc.py, parse_rrc.py).
+  - id: rrc_pdq
+    name: RRC Production Data Query (PDQ)
+    provider: Texas Railroad Commission
+    url: https://www.rrc.texas.gov/resource-center/research/online-research-queries/
+    license: Texas public records.
+    retrieval: Monthly lease disposition + production from the PDQ DSV export.
+  - id: rrc_r3
+    name: RRC R-3 gas processing facilities
+    provider: Texas Railroad Commission
+    url: https://www.rrc.texas.gov/
+    license: Texas public records.
+    retrieval: scripts/fetch_r3.py.
+  - id: carbon_mapper
+    name: Carbon Mapper methane plumes
+    provider: Carbon Mapper
+    url: https://carbonmapper.org/
+    license: CC BY 4.0 (verify current terms before redistribution).
+    retrieval: scripts/fetch_plumes.py.
+  - id: imeo
+    name: UNEP IMEO methane plumes
+    provider: UN Environment Programme — International Methane Emissions Observatory
+    url: https://methanedata.unep.org/
+    license: Public; attribute UNEP IMEO.
+    retrieval: Manual GeoJSON download from methanedata.unep.org.
+
+tables:
+  flare_sites:
+    purpose: |
+      One row per VIIRS Nightfire flare site detected in the Permian during the
+      analysis window — the satellite-observed flare locations and how active
+      each has been. The primary "where are the flares" layer.
+    summary: Satellite-observed flare locations and how active each has been.
+    grain: one row per VNF flare site (`flare_id`)
+    source: [eog_vnf]
+    scope: Detected nights only, 2021-01-01 onward, Permian (Texas) bbox.
+    caveats: |
+      `total_rh_mw` and `avg_rh_mw` are radiant heat in **megawatts** — a measure
+      of fire intensity, *not* a gas volume. Position is the mean of all detected
+      passes. Presence here means a flare was *seen burning*; it is independent of
+      whether the operator reported flaring (see `monthly_flaring`).
+    example: |
+      -- most persistently-burning sites
+      SELECT flare_id, lat, lon, detection_days, total_rh_mw
+      FROM flare_sites
+      ORDER BY detection_days DESC
+      LIMIT 25;
+    columns:
+      flare_id: VIIRS Nightfire site identifier (assigned by the Earth Observation Group).
+      lat: Site latitude, decimal degrees WGS84 (mean of detected passes).
+      lon: Site longitude, decimal degrees WGS84 (mean of detected passes).
+      detection_days: Number of distinct nights the site was detected burning (2021+).
+      first_detected: First detected night in the window.
+      last_detected: Most recent detected night.
+      total_rh_mw: Sum of per-night radiant heat across all detected nights, megawatts.
+      avg_rh_mw: Mean radiant heat over nights with a positive reading, megawatts.
+  flare_detections:
+    purpose: |
+      The per-night detection time series behind `flare_sites` — one row for every
+      night a given flare was observed burning. Powers timelines and lets you see
+      when a flare started, stopped, or intensified.
+    summary: Per-night detection time series behind each flare site.
+    grain: one row per flare site × detected night
+    source: [eog_vnf]
+    scope: Detected nights only, 2021-01-01 onward.
+    caveats: |
+      Only nights with a detection are present (no zero rows for quiet nights, and
+      cloudy nights may simply be missing). `rh_mw` is radiant heat in megawatts.
+    example: |
+      SELECT date, rh_mw
+      FROM flare_detections
+      WHERE flare_id = (SELECT flare_id FROM flare_sites ORDER BY total_rh_mw DESC LIMIT 1)
+      ORDER BY date;
+    columns:
+      flare_id: VIIRS Nightfire site identifier; joins to flare_sites.
+      date: Detection date (night of the satellite pass).
+      rh_mw: Radiant heat for that night, megawatts.
+  permits:
+    purpose: |
+      Texas RRC Statewide Rule 32 flaring/venting exception permits, one row per
+      filing, geolocated to the permitted flare. What operators have asked the
+      state for permission to flare or vent.
+    summary: RRC SWR 32 flaring/venting exception permits, geolocated.
+    grain: one row per SWR 32 permit filing (`filing_no`)
+    source: [rrc_swr32]
+    scope: Permitted flare locations inside the Permian (Texas) bbox.
+    caveats: |
+      Gas-plant filings are **kept** and flagged with `is_gas_plant` (the web map
+      hides them, but they are leads worth seeing). Dates are the requested
+      effective/expiration dates parsed from the detail pages; some are null when
+      the filing did not state them (no imputation).
+    example: |
+      -- approved active permits by operator
+      SELECT operator_name, count(*) AS filings
+      FROM permits
+      WHERE status = 'Approved' AND NOT is_gas_plant
+      GROUP BY 1 ORDER BY filings DESC LIMIT 20;
+    columns:
+      filing_no: RRC filing number (unique permit id).
+      latitude: Permitted flare latitude, decimal degrees WGS84.
+      longitude: Permitted flare longitude, decimal degrees WGS84.
+      name: Site/facility name on the filing.
+      county: Texas county.
+      district: RRC district of the flare location.
+      release_type: Type of release permitted (e.g. flaring, venting).
+      operator_no: RRC operator number of the filer.
+      operator_name: Operator (company) that filed the permit.
+      property_type: Property classification (Oil Lease, Gas Lease, Gas Plant, Drilling Permit, …).
+      status: Filing status (Approved, Denied, Returned, Hearing Pending, Cancelled).
+      effective_dt: Requested effective date of the exception (nullable).
+      expiration_dt: Requested expiration date of the exception (nullable).
+      release_rate_mcf_day: Requested release rate summed across the filing's leases, MCF/day.
+      exception_reasons: Free-text reason(s) the operator gave for the exception.
+      is_gas_plant: True if the filing is a gas-plant property (excluded from the web map layer).
+  permit_leases:
+    purpose: |
+      The leases underlying each SWR 32 filing. Commingle permits cover multiple
+      leases; this flattens a filing to its constituent leases so permits can be
+      joined to production, wells, and gatherers.
+    summary: The leases underlying each SWR 32 permit filing.
+    grain: one row per filing × underlying lease
+    source: [rrc_swr32]
+    scope: Leases of permits present in `permits`.
+    caveats: |
+      `requested_release_rate_mcf_day` is per-lease as stated on the filing and may
+      be null. Join to leases on (`lease_district`, `lease_number`).
+    example: |
+      SELECT pl.filing_no, pl.lease_name, pl.requested_release_rate_mcf_day
+      FROM permit_leases pl
+      WHERE pl.lease_district = '08'
+      ORDER BY pl.requested_release_rate_mcf_day DESC NULLS LAST
+      LIMIT 20;
+    columns:
+      filing_no: RRC filing number; joins to permits.
+      property_type: Lease type (Oil Lease, Gas Lease, Drilling Permit).
+      lease_district: RRC district of the lease (alphanumeric, e.g. 7C, 08, 8A).
+      lease_number: RRC lease number, zero-padded to 6 digits.
+      lease_name: Lease name on the filing.
+      requested_release_rate_mcf_day: Requested release rate for this lease, MCF/day (nullable).
+  wells:
+    purpose: |
+      Every oil/gas well in the Permian (Texas), with location, operator, and the
+      flaring metrics of the lease it belongs to. The most useful table for
+      lead-hunting: filter by operator, intensity, or area.
+    summary: Every Permian well, with operator and its lease's flaring metrics.
+    grain: one row per well (API)
+    source: [rrc_mft, rrc_pdq]
+    scope: Wells with valid coordinates inside the Permian (Texas) bbox.
+    caveats: |
+      `flared_mcf`, `produced_mcf`, and `flaring_intensity_pct` are **lease-level**
+      totals (2021+), repeated on every well of the lease — they are not per-well.
+      Wells whose lease reported no flaring show 0 / null. Flaring figures are
+      operator-reported (see the dataset caveat). `operator_name` is the well's
+      current RRC operator; "Unknown" where unmatched.
+    example: |
+      -- highest-intensity leases, via their wells
+      SELECT DISTINCT lease_district, lease_number, lease_name, operator_name,
+             flared_mcf, flaring_intensity_pct
+      FROM wells
+      WHERE flaring_intensity_pct IS NOT NULL
+      ORDER BY flaring_intensity_pct DESC
+      LIMIT 25;
+    columns:
+      api: Well API number (RRC unique well identifier).
+      oil_gas_code: Whether the well is on an Oil (O) or Gas (G) lease.
+      lease_district: RRC district of the lease (alphanumeric).
+      lease_number: RRC lease number, zero-padded to 6 digits.
+      well_number: Well number within the lease.
+      operator_no: RRC operator number.
+      operator_name: Current operator (company); "Unknown" if unmatched.
+      latitude: Well latitude, decimal degrees WGS84.
+      longitude: Well longitude, decimal degrees WGS84.
+      flared_mcf: Lease total reported gas flared/vented, MCF, 2021+ (repeated per well).
+      produced_mcf: Lease total gas produced, MCF, 2021+ (denominator for intensity).
+      flaring_intensity_pct: Lease flared ÷ produced, percent (null when no production).
+      lease_name: Lease name.
+  leases:
+    purpose: |
+      Lease-level rollup of reported flaring for every Permian lease that reported
+      any flaring in the window — totals, intensity, and well count. The quickest
+      way to rank leases by reported flaring.
+    summary: Lease-level rollup of reported flaring, intensity, and well count.
+    grain: one row per lease (`lease_district` + `lease_number`)
+    source: [rrc_pdq, rrc_mft]
+    scope: Permian (Texas) leases with reported flaring, 2021+.
+    caveats: |
+      Only leases with reported flaring appear (a lease absent here reported none).
+      Volumes are operator-reported. `flaring_intensity_pct` is null when the lease
+      has flaring but no recorded production denominator.
+    example: |
+      SELECT lease_district, lease_number, lease_name, operator_name,
+             total_flared_mcf, flaring_intensity_pct, well_count
+      FROM leases
+      ORDER BY total_flared_mcf DESC
+      LIMIT 25;
+    columns:
+      lease_district: RRC district (alphanumeric).
+      lease_number: RRC lease number, zero-padded to 6 digits.
+      lease_name: Lease name (most common spelling across months).
+      operator_name: Reporting operator (most common across months).
+      total_flared_mcf: Total gas flared/vented over the window, MCF (reported).
+      total_gas_prod_mcf: Total gas produced over the window, MCF.
+      flaring_intensity_pct: total_flared ÷ total_produced, percent (nullable).
+      well_count: Number of wells on the lease (within the Permian bbox).
+  monthly_flaring:
+    purpose: |
+      Monthly lease-level gas disposition — how much gas each lease reported
+      flaring/venting (RRC disposition code 04) each month, alongside total
+      disposed and produced volumes. The reported-flaring time series.
+    summary: Monthly lease-level reported gas flared/vented and produced.
+    grain: one row per lease × month with reported flaring
+    source: [rrc_pdq]
+    scope: Permian (Texas) districts, months with flaring, 2021+.
+    caveats: |
+      **Flaring months only.** A row exists only for lease-months that reported
+      flaring/venting; this is not a complete production table. All volumes are
+      operator-reported. `total_flared_mcf` = `gas_flared_mcf` + `csgd_flared_mcf`.
+    example: |
+      -- monthly reported flaring trend, basin-wide
+      SELECT date, round(sum(total_flared_mcf)) AS flared_mcf
+      FROM monthly_flaring
+      GROUP BY date ORDER BY date;
+    columns:
+      oil_gas_code: Oil (O) or Gas (G) lease.
+      lease_district: RRC district (alphanumeric).
+      lease_number: RRC lease number, zero-padded to 6 digits.
+      lease_name: Lease name.
+      operator_no: RRC operator number.
+      operator_name: Reporting operator.
+      field_name: RRC field name.
+      year: Production cycle year.
+      month: Production cycle month (1–12).
+      date: First day of the cycle month (convenience date).
+      gas_flared_mcf: Gas-well gas flared/vented this month, MCF (disposition code 04).
+      csgd_flared_mcf: Casinghead (oil-well) gas flared/vented this month, MCF.
+      total_flared_mcf: gas_flared_mcf + csgd_flared_mcf, MCF.
+      total_disposed_mcf: Total gas disposed of this month across all disposition codes, MCF.
+      total_gas_prod_mcf: Total gas produced this month, MCF.
+  gatherers:
+    purpose: |
+      Who moves and buys each lease's gas — the gatherers, purchasers, and
+      nominators reported on RRC P-4 forms. Connects a flaring lease to the
+      midstream companies handling its gas.
+    summary: Gatherers, purchasers, and nominators handling each lease's gas.
+    grain: one row per lease × role × entity (current/historical)
+    source: [rrc_mft]
+    scope: Permian (Texas) district leases.
+    caveats: |
+      Roles: Gatherer, Purchaser, Nominator. `is_current` distinguishes the active
+      arrangement from historical ones. `gpn_name` falls back to "Unknown (number)"
+      when the org number does not resolve to a known operator.
+    example: |
+      SELECT type, gpn_name, percentage, is_current, first_date, last_date
+      FROM gatherers
+      WHERE district = '08' AND lease_number = '000001'
+      ORDER BY is_current DESC, last_date DESC NULLS LAST;
+    columns:
+      oil_gas_code: Oil (O) or Gas (G) lease.
+      district: RRC district (alphanumeric).
+      lease_number: RRC lease number, zero-padded to 6 digits.
+      type: Role of the entity — Gatherer, Purchaser, or Nominator.
+      percentage: Share attributed to this entity, percent.
+      gpn_number: Gatherer/Purchaser/Nominator P-5 organisation number.
+      gpn_name: Entity name (resolved from the org number; fallback "Unknown (number)").
+      is_current: String 'true'/'false' — whether this is the current arrangement.
+      first_date: Earliest effective date seen for this entity on the lease (nullable).
+      last_date: Latest effective date seen (nullable).
+  plumes:
+    purpose: |
+      Methane plume observations from Carbon Mapper and UNEP IMEO — point
+      detections of methane emissions with estimated rates. An independent
+      emissions signal to cross-reference against flares and leases.
+    summary: Methane plume detections (Carbon Mapper + UNEP IMEO).
+    grain: one row per plume observation (`plume_id`)
+    source: [carbon_mapper, imeo]
+    scope: Permian bbox.
+    caveats: |
+      Two providers are merged via `source` ('cm' = Carbon Mapper, 'imeo' = UNEP
+      IMEO); their methodologies and detection limits differ. `emission_rate` is an
+      instantaneous estimate (kg/hr), not a monthly total, with `emission_uncertainty`.
+    example: |
+      SELECT source, count(*) AS plumes, round(avg(emission_rate)) AS avg_kg_hr
+      FROM plumes WHERE sector = 'og' GROUP BY source;
+    columns:
+      plume_id: Provider plume identifier.
+      source: Data provider — 'cm' (Carbon Mapper) or 'imeo' (UNEP IMEO).
+      satellite: Observing platform/instrument.
+      date: Observation date.
+      latitude: Plume latitude, decimal degrees WGS84.
+      longitude: Plume longitude, decimal degrees WGS84.
+      emission_rate: Estimated methane emission rate, kg/hr.
+      emission_uncertainty: Uncertainty on the emission rate, kg/hr.
+      sector: Attributed sector — 'og' (oil & gas), 'coal', 'waste', or 'other'.
+  facilities:
+    purpose: |
+      RRC R-3 gas processing facilities (gas plants). Used to distinguish
+      plant-related flares from wellsite flaring, and useful context for where
+      gathered gas is processed.
+    summary: RRC R-3 gas processing facilities (gas plants).
+    grain: one row per gas processing facility (`serial_number`)
+    source: [rrc_r3]
+    scope: Permian bbox.
+    caveats: |
+      Coordinates are facility points. A flare within ~5 km of a plant is more
+      likely plant-related than wellsite flaring.
+    example: |
+      SELECT facility_name, plant_type, latitude, longitude FROM facilities;
+    columns:
+      serial_number: RRC facility serial number.
+      facility_name: Facility (plant) name.
+      plant_type: Type of processing plant.
+      latitude: Facility latitude, decimal degrees WGS84.
+      longitude: Facility longitude, decimal degrees WGS84.
+  operators:
+    purpose: |
+      RRC operator-number → name lookup. Reference table for resolving operator
+      numbers found elsewhere (wells, permits, gatherers).
+    summary: RRC operator-number → name reference lookup.
+    grain: one row per RRC operator number
+    source: [rrc_mft]
+    scope: RRC-wide (statewide) — the one table not geographically clipped.
+    caveats: |
+      Statewide, not Permian-only — it is a name lookup. `status` reflects the
+      operator's RRC standing.
+    example: |
+      SELECT * FROM operators WHERE operator_name ILIKE '%diamondback%';
+    columns:
+      operator_no: RRC operator number.
+      operator_name: Operator (company) name.
+      status: RRC operator status.
+  s2_detections:
+    purpose: |
+      Sentinel-2 shortwave-infrared (SWIR) flare detections, clustered into
+      persistent flare locations. A higher-spatial-resolution complement to VIIRS
+      Nightfire, better at separating nearby flares.
+    summary: Sentinel-2 SWIR flare detections, clustered (refresh pending).
+    grain: one row per Sentinel-2 detection (member of a cluster)
+    source: [s2]
+    scope: Permian (Texas) clip; quality-filtered detections.
+    caveats: |
+      **Pending refresh.** These detections use the current s2-flares method and
+      will be regenerated with the latest openflaring method in a following update.
+      `b12`/`b11` are SWIR band reflectances; `cluster_*` columns describe the
+      persistent flare cluster a detection belongs to.
+    example: |
+      -- most persistent S2 flare clusters
+      SELECT DISTINCT cluster_id, cluster_lat, cluster_lon, cluster_date_count, cluster_max_b12
+      FROM s2_detections
+      ORDER BY cluster_date_count DESC
+      LIMIT 25;
+    columns:
+      cluster_id: Identifier of the persistent flare cluster this detection belongs to.
+      date: Detection date (Sentinel-2 acquisition).
+      max_b12: Peak B12 (SWIR-2) reflectance of the detection.
+      pixels: Number of hot pixels in the detection.
+      det_lon: Detection longitude, decimal degrees WGS84.
+      det_lat: Detection latitude, decimal degrees WGS84.
+      cluster_lon: Cluster anchor longitude, decimal degrees WGS84.
+      cluster_lat: Cluster anchor latitude, decimal degrees WGS84.
+      cluster_max_b12: Maximum B12 reflectance across the cluster.
+      cluster_avg_b12: Mean B12 reflectance across the cluster.
+      cluster_date_count: Number of distinct dates the cluster was detected (persistence count).
+      cluster_persistence: Fraction of clear acquisitions on which the cluster was detected.
+      cluster_seasonal: Whether the cluster's activity looks seasonal.

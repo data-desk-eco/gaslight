@@ -1,7 +1,7 @@
 WORKERS ?= 32
 export WORKERS
 
-.PHONY: all db refresh export vendor serve permits permit-details wells vnf plumes r3 s2 clean help
+.PHONY: all db refresh publish export vendor serve permits permit-details wells vnf plumes r3 s2 clean help
 
 all: db
 
@@ -69,23 +69,41 @@ web/data/s2.parquet: data/s2-raw.csv queries/s2.sql
 # --- database ---
 
 refresh:
-	rm -f data/data.duckdb
+	rm -f data/data.duckdb dist/gaslight.duckdb
 	$(MAKE) db
 
-db: data/data.duckdb
+# Full pipeline: foundation (load → rrc) → publish (shareable DB + dict) → export (web parquets)
+db: dist/gaslight.duckdb export
 
-data/data.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_profiles/.done data/flare_locations.csv data/permit_details.csv data/permit_properties.csv data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/pdq/.done queries/*.sql
+# Foundation: faithful raw load + normalised rrc tables
+data/data.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_profiles/.done data/flare_locations.csv data/permit_details.csv data/permit_properties.csv data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/pdq/.done queries/load.sql queries/rrc.sql
 	@rm -f $@
 	duckdb $@ < queries/load.sql
 	duckdb $@ < queries/rrc.sql
-	duckdb $@ < queries/export.sql
-	@echo "Database ready: $@"
+	@echo "Foundation ready: $@"
+
+# --- shareable database ---
+
+# dist/gaslight.duckdb: the single clean, whole-Permian product (also builds
+# the permian.* schema inside data.duckdb that export.sql projects from) plus
+# the data dictionary (nested markdown + in-DB _dictionary/_sources tables).
+publish: dist/gaslight.duckdb
+
+# NB: publish.sql reads the existing web/data/s2.parquet at runtime but it is
+# deliberately not a prerequisite — regenerating it is a separate `make s2` step.
+dist/gaslight.duckdb: data/data.duckdb queries/publish.sql docs/data-dictionary/_meta.yaml scripts/build_dictionary.py
+	@rm -f $@
+	@mkdir -p dist
+	duckdb data/data.duckdb < queries/publish.sql
+	uv run scripts/build_dictionary.py
+	@echo "Shareable DB ready: $@ ($$(du -h $@ | cut -f1))"
 
 # --- web app ---
 
-export: data/data.duckdb queries/export.sql
-	mkdir -p web/data
+export: dist/gaslight.duckdb queries/export.sql
+	@mkdir -p web/data
 	duckdb data/data.duckdb < queries/export.sql
+	@echo "Web parquets exported"
 
 vendor:
 	scripts/vendor.sh
@@ -94,13 +112,14 @@ serve:
 	uv run python -m http.server 8080 -d web
 
 clean:
-	rm -f data/data.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/s2-raw.csv
+	rm -f data/data.duckdb dist/gaslight.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/s2-raw.csv
 
 help:
 	@echo "gaslight — dark flaring analysis for the Permian Basin"
 	@echo ""
-	@echo "  make db              Full pipeline (load → rrc → export)"
+	@echo "  make db              Full pipeline (load → rrc → publish → export)"
 	@echo "  make refresh         Rebuild database from scratch"
+	@echo "  make publish         Build shareable dist/gaslight.duckdb + data dictionary"
 	@echo "  make export          Re-export parquets for web app"
 	@echo "  make vendor          Download vendored JS dependencies"
 	@echo "  make serve           Dev server on :8080"

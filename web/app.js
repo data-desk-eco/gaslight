@@ -1,4 +1,4 @@
-import * as db from './db.js?v=9';
+import * as db from './db.js?v=10';
 import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached, getCluster, registerCluster, isEnhancing } from './enhance.js?v=7';
 import * as precomputed from './precomputed.js';
 import * as drawer from './drawer.js?v=5';
@@ -180,9 +180,6 @@ map.on('load', async () => {
         loadCachedS2();
     }
     updateMapCentre();
-    // Start building operator index in background (ready for first click)
-    bootLog('index  operator attribution (background)');
-    db.buildOperatorIndex();
     bootLog('init   data drawer');
     bootDone();
     // Stats use queryRenderedFeatures — wait for first idle after data loads
@@ -1287,88 +1284,62 @@ const card = {
 // Shared data helpers for detail cards
 // ---------------------------------------------------------------------------
 
-function mergeRanges(filings) {
-    const ranges = filings
-        .filter(f => f.effective_dt)
-        .map(f => [f.effective_dt, f.expiration_dt || '9999-12-31'])
-        .sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-    if (ranges.length === 0) return [];
-    const merged = [ranges[0].slice()];
-    for (let i = 1; i < ranges.length; i++) {
-        const prev = merged[merged.length - 1];
-        if (ranges[i][0] <= prev[1]) {
-            if (ranges[i][1] > prev[1]) prev[1] = ranges[i][1];
-        } else {
-            merged.push(ranges[i].slice());
-        }
-    }
-    return merged;
+// Distance, formatted as metres under 1km else km.
+function fmtDist(distKm) {
+    if (distKm == null) return '';
+    return distKm < 1 ? `${(distKm * 1000).toFixed(0)} m` : `${distKm.toFixed(1)} km`;
 }
 
-function computeCoverage(filings, firstDetected, lastDetected) {
-    if (!firstDetected || !lastDetected || filings.length === 0) return null;
-    const merged = mergeRanges(filings);
-    if (merged.length === 0) return { status: 'uncovered', gaps: null };
-    const gaps = [];
-    let cursor = firstDetected;
-    for (const [start, end] of merged) {
-        if (start > cursor && start <= lastDetected) gaps.push([cursor, start]);
-        if (end > cursor) cursor = end;
-    }
-    if (cursor < lastDetected) gaps.push([cursor, lastDetected]);
-    const firstCovered = merged.some(([s, e]) => s <= firstDetected && e >= firstDetected);
-    const lastCovered = merged.some(([s, e]) => s <= lastDetected && e >= lastDetected);
-    if (firstCovered && lastCovered && gaps.length === 0) return { status: 'covered', gaps: null };
-    return { status: gaps.length > 0 ? 'gap' : 'partial', gaps };
+function infraRow(name, meta, distKm) {
+    const metaText = [meta, fmtDist(distKm)].filter(Boolean).join(' · ');
+    return `<div class="gatherer-row">
+            <span class="gatherer-name">${name}</span>
+            <span class="gatherer-meta">${metaText}</span>
+        </div>`;
 }
 
-function coverageLabel(coverage) {
-    if (!coverage) return null;
-    const labels = {
-        covered: '<span class="permit-covered">Covered</span>',
-        gap: '<span class="permit-uncovered">Gap in coverage</span>',
-        partial: '<span class="permit-uncovered">Partial</span>',
-    };
-    return labels[coverage.status] || '<span class="permit-uncovered">Uncovered</span>';
-}
+// Nearby infrastructure — deliberately NOT a single attribution. Proximity
+// within a satellite pixel is not ownership, so we list what's near the flare
+// (permitted flares, gas plants) and let the reader judge, rather than naming
+// one operator/facility with a confidence verdict.
+function nearbyInfraHtml(facs, filings, firstDate, lastDate) {
+    const parts = [card.fields(
+        ['First detected', formatDate(firstDate)],
+        ['Last detected', formatDate(lastDate)],
+    )];
 
-// Shared attribution block — facility match takes precedence over operator
-function attributionHtml(facs, op, filings, firstDate, lastDate) {
-    if (facs.length > 0) {
-        const f = facs[0];
-        return [
-            card.fields(
-                ['Facility', f.facility_name],
-                f.plant_type && ['Type', f.plant_type],
-                ['Distance', (f.distance_km * 1000).toFixed(0) + 'm'],
-            ),
-            card.fields(
-                ['First detected', formatDate(firstDate)],
-                ['Last detected', formatDate(lastDate)],
-            ),
-        ].join('');
+    // Permitted flares within the 375m match radius (deduped by site + operator)
+    const seen = new Set();
+    const permitRows = filings
+        .slice()
+        .sort((a, b) => (a.distance_km ?? 99) - (b.distance_km ?? 99))
+        .filter(f => {
+            const k = `${f.operator_name}|${f.name}`;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        })
+        .map(f => infraRow(
+            f.operator_name || 'Unknown operator',
+            [f.name, f.release_type].filter(Boolean).join(' · '),
+            f.distance_km,
+        )).join('');
+    if (permitRows) {
+        parts.push(card.header('Nearby permitted flares'));
+        parts.push(`<div class="gatherer-list">${permitRows}</div>`);
     }
-    if (!op) return '';
-    const confidence = op.confidence ? op.confidence.charAt(0).toUpperCase() + op.confidence.slice(1) : null;
-    const distKm = op.nearest_permit_km != null ? Number(op.nearest_permit_km) : null;
-    const coverage = computeCoverage(filings, firstDate, lastDate);
-    const gapHtml = coverage?.gaps?.length
-        ? coverage.gaps.map(([a, b]) => `${formatDate(a)} – ${formatDate(b)}`).join('<br>')
-        : null;
-    return [
-        card.fields(
-            ['Operator', op.operator_name || 'N/A'],
-            confidence != null && ['Confidence', confidence],
-            ['Nearest permit', op.permit_name || 'None'],
-            ['Distance', distKm != null ? distKm.toFixed(2) + ' km' : 'N/A'],
-            coverageLabel(coverage) && ['Coverage', coverageLabel(coverage)],
-            gapHtml && ['Gaps', gapHtml],
-        ),
-        card.fields(
-            ['First detected', formatDate(firstDate)],
-            ['Last detected', formatDate(lastDate)],
-        ),
-    ].join('');
+
+    // R-3 gas processing facilities within 5km
+    if (facs.length) {
+        const facRows = facs.map(f => infraRow(
+            f.facility_name || 'Gas plant',
+            f.plant_type || '',
+            f.distance_km,
+        )).join('');
+        parts.push(card.header('Nearby gas plants'));
+        parts.push(`<div class="gatherer-list">${facRows}</div>`);
+    }
+    return parts.join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -1390,11 +1361,10 @@ function showFlareDetail(feature) {
 
     Promise.all([
         db.queryNearbyFacilities(Number(p.lat), Number(p.lon)),
-        db.queryOperator(p.flare_id, Number(p.lat), Number(p.lon)),
         db.queryPermitFilings(Number(p.lat), Number(p.lon)),
-    ]).then(([facs, op, filings]) => {
+    ]).then(([facs, filings]) => {
         const el = $('vnf-operator-section');
-        if (el) el.innerHTML = attributionHtml(facs, op, filings, p.first_detected, p.last_detected);
+        if (el) el.innerHTML = nearbyInfraHtml(facs, filings, p.first_detected, p.last_detected);
     }).catch(() => {});
 
     db.queryLeases(p.flare_id).then(leases => {
@@ -1717,11 +1687,10 @@ function showS2ClusterDetail(cluster) {
     const firstDate = dates[0] || null, lastDate = dates[dates.length - 1] || null;
     Promise.all([
         db.queryNearbyFacilities(cluster.lat, cluster.lon),
-        db.queryOperatorByLocation(cluster.lat, cluster.lon),
         db.queryPermitFilings(cluster.lat, cluster.lon),
-    ]).then(([facs, op, filings]) => {
+    ]).then(([facs, filings]) => {
         const el = $('s2-permit-section');
-        if (el) el.innerHTML = attributionHtml(facs, op, filings, firstDate, lastDate);
+        if (el) el.innerHTML = nearbyInfraHtml(facs, filings, firstDate, lastDate);
     }).catch(() => {});
 }
 

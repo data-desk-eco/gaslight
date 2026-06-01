@@ -1,5 +1,6 @@
 data/*
 !data/.gitkeep
+dist/
 .env
 .DS_Store
 __pycache__/
