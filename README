@@ -1,31 +1,29 @@
 gaslight
 ========
 
-Flaring analysis for the Permian Basin. It cross-references satellite-detected
-flares against Texas state records — permits, wells, leases, reported flaring
-volumes, methane plumes — so you can see where gas is being burned and how that
-squares with what operators tell regulators.
+Flaring analysis for the Permian Basin. Gaslight cross-references
+satellite-detected flares against Texas state records — permits, wells, leases,
+reported flaring volumes, and methane plumes — to show where gas is being burned
+and how that compares with what operators report to regulators.
 
 Live map: http://research.datadesk.eco/gaslight/
 
 The data
 --------
 
-Everything lands in a single, standalone DuckDB file, `dist/gaslight.duckdb` —
-one plain schema, lat/lon columns, no geometry blobs. Open it with the free
-duckdb CLI (or read straight into pandas/R/QGIS):
+The dataset is a single, standalone DuckDB file, `dist/gaslight.duckdb` — one
+plain schema, latitude/longitude columns, no geometry blobs. Open it with the
+duckdb CLI, or read it straight into pandas, R, or QGIS:
 
     duckdb dist/gaslight.duckdb
 
-Every table and column is documented in `docs/data-dictionary/`, and the same
-notes live inside the database (`SELECT * FROM _dictionary`).
+Every table and column is documented in `docs/data-dictionary/`. The same
+documentation is embedded in the database itself (`SELECT * FROM _dictionary`).
 
-One thing worth knowing up front: the flaring *volumes* are self-reported by
-operators to the RRC, while the satellite layers are independent observations
-from space. They don't always agree — that gap is usually the point.
-
-The Sentinel-2 flare layer is detected by the sibling permian-flaring project;
-gaslight just fetches and displays it (`make s2`).
+Note that the flaring volumes are self-reported by operators to the RRC, while
+the satellite layers are independent observations from space; the two do not
+always agree. The Sentinel-2 flare layer is detected by the sibling
+permian-flaring project — gaslight fetches and displays it (`make s2`).
 
 Building it
 -----------
@@ -33,8 +31,8 @@ Building it
     uv sync
     make refresh     # rebuild the database from scratch
     make serve       # run the map locally on :8080
-    make help        # everything else
+    make help        # all targets
 
-Scrapers and the SQL pipeline live in `scripts/` and `queries/`; the web map is
-in `web/` (MapLibre GL + DuckDB WASM, no build step, no npm). Push to main to
-deploy via GitHub Pages.
+The scrapers and SQL pipeline live in `scripts/` and `queries/`; the web map is
+in `web/` (MapLibre GL + DuckDB WASM, no build step, no npm dependencies). Push
+to main to deploy via GitHub Pages.
