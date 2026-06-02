@@ -99,14 +99,20 @@ export function loadTier1() {
     TIER1.forEach(n => _loadParquet(n));
 }
 
-// Load pre-computed S2 detections parquet (optional — may not exist)
+// Load the S2 catalogue parquet (permian-flaring's score-capped sites; optional —
+// may not exist if `make s2` hasn't run)
 export async function loadS2Precomputed() {
     await _loadParquet('s2');
 }
 
+// One row per H3 site, ordered by score. `detections` is a JSON string array of
+// per-date observations ({date, max_b12, pixels}) — parsed client-side.
 export async function queryS2Precomputed() {
     const result = await query(`
-        SELECT * FROM 's2.parquet' ORDER BY cluster_id, date
+        SELECT h3, lon, lat, n_detections, n_dates, first_date, last_date,
+               max_b12, mean_max_b12, b12_b11_ratio, min_glint_score,
+               total_score, corroborated, nearest_source, detections
+        FROM 's2.parquet' ORDER BY total_score DESC
     `);
     return rows(result);
 }

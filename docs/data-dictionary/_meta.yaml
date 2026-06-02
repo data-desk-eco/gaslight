@@ -94,10 +94,13 @@ sources:
     retrieval: Per-site nightly profiles fetched via scripts/fetch_vnf.py.
   - id: s2
     name: Sentinel-2 SWIR flare detection
-    provider: Copernicus / ESA imagery, processed by the s2-flares library
+    provider: Copernicus / ESA imagery, detected by the permian-flaring project
     url: https://dataspace.copernicus.eu/
     license: Copernicus Sentinel data, free and open. Detections are derived products.
-    retrieval: Computed from Sentinel-2 L2A B11/B12 bands (s2-flares CLI).
+    retrieval: |
+      Detected from Sentinel-2 L2A B11/B12 bands and ranked by the sibling
+      permian-flaring project; gaslight fetches the top-scoring catalogue via
+      `make s2` (a one-row-per-site export with per-date observations).
   - id: rrc_swr32
     name: RRC Statewide Rule 32 flaring/venting permits
     provider: Texas Railroad Commission
@@ -441,35 +444,45 @@ tables:
       status: RRC operator status.
   s2_detections:
     purpose: |
-      Sentinel-2 shortwave-infrared (SWIR) flare detections, clustered into
-      persistent flare locations. A higher-spatial-resolution complement to VIIRS
-      Nightfire, better at separating nearby flares.
-    summary: Sentinel-2 SWIR flare detections, clustered (refresh pending).
-    grain: one row per Sentinel-2 detection (member of a cluster)
+      Sentinel-2 shortwave-infrared (SWIR) flare sites — a higher-spatial-
+      resolution complement to VIIRS Nightfire, better at separating nearby
+      flares. One row per detected site (clustered to an H3 cell), with the
+      site's per-date observations carried in the `detections` array.
+    summary: Sentinel-2 SWIR flare sites (top-scoring, from permian-flaring).
+    grain: one row per H3 flare site
     source: [s2]
-    scope: Permian (Texas) clip; quality-filtered detections.
+    scope: |
+      Permian (Texas) clip; the top 5,000 sites by detection score. 2025-01-01
+      to 2026-05-31 window (the Sentinel-2 archive used by permian-flaring),
+      unlike the other satellite layers which are 2021+.
     caveats: |
-      **Pending refresh.** These detections use the current s2-flares method and
-      will be regenerated with the latest openflaring method in a following update.
-      `b12`/`b11` are SWIR band reflectances; `cluster_*` columns describe the
-      persistent flare cluster a detection belongs to.
+      Detected and scored by the sibling **permian-flaring** project (the S2
+      detection engine), not by gaslight; gaslight consumes the ranked catalogue
+      as a display layer. `corroborated` means a site sits near independent
+      evidence (VIIRS, RRC permits/wells, a Carbon Mapper plume, or OSM flare
+      infrastructure) — see `nearest_source`. `b12`/`b11` are SWIR reflectances;
+      a real flare's peak B12/B11 ratio exceeds ~1.15 (lower can be sun glint).
+      `detections` is a JSON array of `{date, max_b12, pixels}` objects, one per
+      acquisition the site was seen on.
     example: |
-      -- most persistent S2 flare clusters
-      SELECT DISTINCT cluster_id, cluster_lat, cluster_lon, cluster_date_count, cluster_max_b12
+      -- brightest, most-detected S2 flare sites
+      SELECT h3, lat, lon, n_dates, n_detections, max_b12, corroborated, nearest_source
       FROM s2_detections
-      ORDER BY cluster_date_count DESC
+      ORDER BY total_score DESC
       LIMIT 25;
     columns:
-      cluster_id: Identifier of the persistent flare cluster this detection belongs to.
-      date: Detection date (Sentinel-2 acquisition).
-      max_b12: Peak B12 (SWIR-2) reflectance of the detection.
-      pixels: Number of hot pixels in the detection.
-      det_lon: Detection longitude, decimal degrees WGS84.
-      det_lat: Detection latitude, decimal degrees WGS84.
-      cluster_lon: Cluster anchor longitude, decimal degrees WGS84.
-      cluster_lat: Cluster anchor latitude, decimal degrees WGS84.
-      cluster_max_b12: Maximum B12 reflectance across the cluster.
-      cluster_avg_b12: Mean B12 reflectance across the cluster.
-      cluster_date_count: Number of distinct dates the cluster was detected (persistence count).
-      cluster_persistence: Fraction of clear acquisitions on which the cluster was detected.
-      cluster_seasonal: Whether the cluster's activity looks seasonal.
+      h3: H3 cell id (resolution 11) identifying the flare site; stable across rebuilds.
+      lat: Site latitude, decimal degrees WGS84 (detection centroid).
+      lon: Site longitude, decimal degrees WGS84 (detection centroid).
+      n_detections: Number of Sentinel-2 acquisitions the site was detected on.
+      n_dates: Number of distinct dates detected (<= n_detections).
+      first_date: First detection date.
+      last_date: Most recent detection date.
+      max_b12: Peak B12 (SWIR-2) reflectance across all detections.
+      mean_max_b12: Mean of the per-detection peak B12 reflectance.
+      b12_b11_ratio: Peak B12/B11 reflectance ratio (a temperature proxy; >~1.15 indicates true combustion).
+      min_glint_score: Lowest sun-glint score across detections (low = unlikely glint).
+      total_score: Composite detection-quality score used to rank the catalogue.
+      corroborated: Whether the site is corroborated by independent evidence (see nearest_source).
+      nearest_source: Nearest corroborating source (e.g. VNF, RRC, Carbon Mapper, OSM), or 'uncorroborated'.
+      detections: JSON array of per-date observations -- '{date, max_b12, pixels}' objects.

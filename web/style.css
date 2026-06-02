@@ -235,32 +235,7 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
     color: var(--text-faint);
 }
 
-.enhance-btn { width: 100%; margin: 8px 0; }
-
-/* --- S2 enhancement --- */
-
-.enhance-results {
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--border-light);
-}
-
-.enhance-cluster {
-    padding: 4px 0;
-    font-size: var(--font-sm);
-    color: var(--text-secondary);
-    cursor: pointer;
-}
-.enhance-cluster:hover { color: var(--text-primary); }
-
-.cluster-dot {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-flare);
-    margin-right: 6px;
-    flex-shrink: 0;
-}
+/* --- S2 site detail card --- */
 
 .s2-event-list {
     margin: 8px 0;
@@ -276,20 +251,7 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
     padding: 5px 6px;
     font-size: var(--font-sm);
     color: var(--text-secondary);
-    cursor: pointer;
     border-radius: 3px;
-}
-.s2-event-item:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-}
-.s2-event-item.active {
-    background: rgba(255, 170, 68, 0.12);
-    color: var(--text-primary);
-}
-.s2-event-item.loading .s2-event-date::after {
-    content: ' ...';
-    color: var(--text-secondary);
 }
 
 .s2-event-dot {
@@ -306,20 +268,12 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
     opacity: 0.6;
 }
 
-.cluster-permit {
-    font-size: var(--font-xs);
-    color: var(--text-faint);
-    margin-top: 2px;
-    padding-left: 12px;
-}
-
 /* Status colours for permit coverage */
 .permit-covered { color: var(--color-ok); }
 .permit-uncovered { color: var(--color-warn); }
 
 .filings-list { padding: 0 16px 8px; }
 .filings-list > .detail-row { padding: 6px 0; border-top: 1px solid var(--border-subtle); }
-.stop-analysis-btn { width: calc(100% - 32px); margin: 8px 16px; text-align: center; }
 
 /* --- Detail card content --- */
 

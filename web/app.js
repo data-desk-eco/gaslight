@@ -1,10 +1,6 @@
 import * as db from './db.js?v=10';
-import { enhance, cancelEnhance, setUpdateCallback, getState, loadAllCached, getCluster, registerCluster, isEnhancing } from './enhance.js?v=7';
-import * as precomputed from './precomputed.js';
+import * as s2 from './s2.js';
 import * as drawer from './drawer.js?v=5';
-import { searchSTAC } from './vendor/s2-flares/lib/stac.js';
-import { openCOG } from './vendor/s2-flares/lib/cog.js';
-import { wgs84ToUtm, utmToWgs84, utmParams } from './vendor/s2-flares/lib/geo.js';
 
 // Boot screen log
 const _bootLog = document.getElementById('boot-log');
@@ -171,13 +167,11 @@ map.on('load', async () => {
     bootLog('tier1  fetch permits, plumes, wells, facilities');
     db.loadTier1();
     loadPermits();
-    const cached = loadCachedS2();
-    if (cached) bootLog('restore cached s2 enhancements');
-    // Load pre-computed S2 bulk detections before handling deep links
-    await precomputed.load();
-    if (precomputed.isLoaded()) {
-        bootLog(`precomp ${precomputed.getAll().length} S2 clusters loaded`);
-        loadCachedS2();
+    // Load permian-flaring's score-capped S2 catalogue before handling deep links
+    await s2.load();
+    if (s2.isLoaded()) {
+        bootLog(`s2 ${s2.getAll().length} catalogue sites loaded`);
+        loadS2Sites();
     }
     updateMapCentre();
     bootLog('init   data drawer');
@@ -601,31 +595,29 @@ async function loadWells() {
 }
 
 
-function loadCachedS2() {
-    const clusters = loadAllCached(); // also rebuilds clusterIndex
-    // Merge pre-computed bulk clusters (deduplicated by id)
-    const seen = new Set(clusters.map(c => c.id));
-    const bulk = precomputed.getAll().filter(c => !seen.has(c.id));
-    for (const c of bulk) registerCluster(c);
-    const all = [...clusters, ...bulk];
-    if (all.length === 0) return 0;
+// Populate the S2 map source from the catalogue. The per-date `detections`
+// array is deliberately omitted from the GeoJSON properties (kept light) — it's
+// looked up by id via s2.get() when a site's detail card opens.
+function loadS2Sites() {
+    const sites = s2.getAll();
+    if (sites.length === 0) return 0;
     const fc = {
         type: 'FeatureCollection',
-        features: all.map(d => ({
+        features: sites.map(d => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [d.lon, d.lat] },
             properties: {
                 id: d.id, lon: d.lon, lat: d.lat,
-                max_b12: d.max_b12, avg_b12: d.avg_b12,
-                detection_count: d.detection_count, date_count: d.date_count,
+                max_b12: d.max_b12, mean_max_b12: d.mean_max_b12,
+                n_detections: d.n_detections, n_dates: d.n_dates,
                 first_date: d.first_date, last_date: d.last_date,
-                flare_id: d.flare_id,
+                total_score: d.total_score, corroborated: d.corroborated,
             },
         })),
     };
     map.getSource('s2-detections').setData(fc);
     drawer.setData('s2', fc.features);
-    return all.length;
+    return sites.length;
 }
 
 function updateMapCentre() {
@@ -891,7 +883,7 @@ function updateHash(params) {
 }
 
 // Explicitly clear the feature-selection params (keep drawer/q/l/map).
-const SELECTION_KEYS = { vnf: null, mode: null, plume: null, s2: null };
+const SELECTION_KEYS = { vnf: null, plume: null, s2: null };
 
 async function handleDeepLink() {
     const hash = location.hash.replace(/^#/, '');
@@ -913,11 +905,11 @@ async function handleDeepLink() {
     }
 
     if (params.s2) {
-        const cluster = getCluster(params.s2);
-        if (cluster) {
-            updateHash({ s2: cluster.id });
-            map.flyTo({ center: [cluster.lon, cluster.lat], zoom: 16 });
-            showS2ClusterDetail(cluster);
+        const site = s2.get(params.s2);
+        if (site) {
+            updateHash({ s2: site.id });
+            map.flyTo({ center: [site.lon, site.lat], zoom: 16 });
+            showS2Detail(site);
         }
         return;
     }
@@ -951,16 +943,12 @@ async function handleDeepLink() {
     if (!feature) return;
 
     const [lon, lat] = feature.geometry.coordinates;
-    updateHash({ vnf: flareId, mode: params.mode || undefined });
+    updateHash({ vnf: flareId });
     map.flyTo({ center: [lon, lat], zoom: 14 });
 
-    if (params.mode === 's2') {
-        showEnhanceDetail(feature);
-    } else {
-        feature.layer = { id: 'flares-layer' };
-        showFeatureDetail(feature);
-        syncDrawer(feature);
-    }
+    feature.layer = { id: 'flares-layer' };
+    showFeatureDetail(feature);
+    syncDrawer(feature);
 }
 
 function removeS2Badge() {
@@ -1018,7 +1006,7 @@ function dimPaint(base, ratio, match) {
     return result;
 }
 
-function activateSelection({ flareId, permitProps, plumeId, wellApi, infraSerial } = {}) {
+function activateSelection({ flareId, permitProps, plumeId, wellApi, infraSerial, s2Id } = {}) {
     $('map-dim-overlay').classList.add('active');
 
     const flareMatch = flareId != null ? ['==', ['get', 'flare_id'], flareId] : null;
@@ -1033,7 +1021,7 @@ function activateSelection({ flareId, permitProps, plumeId, wellApi, infraSerial
         'plumes-layer': plumeId != null ? ['==', ['get', 'plume_id'], plumeId] : null,
         'wells-layer': wellApi != null ? ['==', ['get', 'api'], wellApi] : null,
         'infra-layer': infraSerial != null ? ['==', ['get', 'serial_number'], infraSerial] : null,
-        's2-points': flareMatch,
+        's2-points': s2Id != null ? ['==', ['get', 'id'], s2Id] : null,
     };
 
     for (const [layerId, defaults] of Object.entries(LAYER_DEFAULTS)) {
@@ -1057,149 +1045,12 @@ function deactivateSelection() {
 
 function closeDetail() {
     removeS2Badge();
-    closeS2Pixels();
     updateHash(SELECTION_KEYS);
     $('detail-panel').classList.add('hidden');
     deactivateSelection();
     overlappingFeatures = [];
     overlapIndex = 0;
     drawer.highlight(null, null);
-}
-
-// ---------------------------------------------------------------------------
-// S2 pixel overlay — renders B12 COG pixels on the map (magma colormap)
-// ---------------------------------------------------------------------------
-
-// Magma-ish colormap: black → purple → red → orange → yellow
-const MAGMA_STOPS = [
-    [0.0, 0, 0, 4],
-    [0.1, 15, 4, 56],
-    [0.2, 58, 12, 108],
-    [0.3, 101, 21, 132],
-    [0.4, 143, 36, 130],
-    [0.5, 186, 55, 112],
-    [0.6, 221, 82, 83],
-    [0.7, 245, 119, 56],
-    [0.8, 254, 164, 37],
-    [0.9, 253, 210, 59],
-    [1.0, 252, 255, 164],
-];
-
-function magmaColor(t) {
-    t = Math.max(0, Math.min(1, t));
-    for (let i = 1; i < MAGMA_STOPS.length; i++) {
-        if (t <= MAGMA_STOPS[i][0]) {
-            const [t0, r0, g0, b0] = MAGMA_STOPS[i - 1];
-            const [t1, r1, g1, b1] = MAGMA_STOPS[i];
-            const f = (t - t0) / (t1 - t0);
-            return [
-                Math.round(r0 + f * (r1 - r0)),
-                Math.round(g0 + f * (g1 - g0)),
-                Math.round(b0 + f * (b1 - b0)),
-            ];
-        }
-    }
-    return [252, 255, 164];
-}
-
-function utmBoundsToWgs84(utmBounds, epsg) {
-    const { zone, isNorth } = utmParams(epsg);
-    const sw = utmToWgs84(utmBounds[0], utmBounds[1], zone, isNorth);
-    const ne = utmToWgs84(utmBounds[2], utmBounds[3], zone, isNorth);
-    return [sw[0], sw[1], ne[0], ne[1]]; // [west, south, east, north]
-}
-
-function closeS2Pixels() {
-    if (map.getLayer('cog-layer')) map.removeLayer('cog-layer');
-    if (map.getSource('cog-source')) map.removeSource('cog-source');
-}
-
-async function loadS2Pixels(det, clusterLon, clusterLat) {
-    closeS2Pixels();
-
-    const buffer = 250; // meters around detection
-    const epsg = det.epsg;
-    if (!epsg || !det.cog_b12) return;
-
-    const { zone, isNorth } = utmParams(epsg);
-    const [utmX, utmY] = wgs84ToUtm(clusterLon, clusterLat, zone, isNorth);
-    const utmBounds = [utmX - buffer, utmY - buffer, utmX + buffer, utmY + buffer];
-
-    // Mark active event
-    document.querySelectorAll('.s2-event-item').forEach(el => el.classList.remove('active'));
-    const activeEl = document.querySelector(`.s2-event-item[data-date="${det.date}"]`);
-    activeEl?.classList.add('active', 'loading');
-
-    try {
-        const b12Meta = await openCOG(det.cog_b12);
-        const { image, bbox: imgBbox, width, height, resX, resY } = b12Meta;
-        const [imgMinX, imgMinY, imgMaxX, imgMaxY] = imgBbox;
-
-        const x0 = Math.max(0, Math.floor((utmBounds[0] - imgMinX) / resX));
-        const y0 = Math.max(0, Math.floor((imgMaxY - utmBounds[3]) / resY));
-        const x1 = Math.min(width, Math.ceil((utmBounds[2] - imgMinX) / resX));
-        const y1 = Math.min(height, Math.ceil((imgMaxY - utmBounds[1]) / resY));
-
-        const windowWidth = x1 - x0, windowHeight = y1 - y0;
-        if (windowWidth <= 0 || windowHeight <= 0) throw new Error('Outside image bounds');
-
-        const actualUtmBounds = [imgMinX + x0 * resX, imgMaxY - y1 * resY, imgMinX + x1 * resX, imgMaxY - y0 * resY];
-        const bounds = utmBoundsToWgs84(actualUtmBounds, epsg);
-        if (!bounds) throw new Error('Could not convert bounds');
-
-        const rasters = await image.readRasters({
-            window: [x0, y0, x1, y1],
-            width: Math.min(windowWidth, 256),
-            height: Math.min(windowHeight, 256)
-        });
-
-        const data = rasters[0];
-        const w = rasters.width, h = rasters.height;
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        const imgData = ctx.createImageData(w, h);
-
-        // B12 reflectance conversion: raw DN → reflectance, then hot-pixel filter
-        const B12_SCALE = 0.0001, B12_OFFSET = -0.1, B12_THRESHOLD = 0.6, B12_CEILING = 1.5;
-        for (let i = 0; i < data.length; i++) {
-            const v = data[i] * B12_SCALE + B12_OFFSET;
-            if (v <= B12_THRESHOLD) {
-                imgData.data[i * 4 + 3] = 0;
-            } else {
-                const t = Math.min(1, (v - B12_THRESHOLD) / (B12_CEILING - B12_THRESHOLD));
-                const [r, g, b] = magmaColor(t);
-                imgData.data[i * 4] = r;
-                imgData.data[i * 4 + 1] = g;
-                imgData.data[i * 4 + 2] = b;
-                imgData.data[i * 4 + 3] = 255;
-            }
-        }
-        ctx.putImageData(imgData, 0, 0);
-
-        closeS2Pixels(); // remove any added while fetching
-
-        const coords = [
-            [bounds[0], bounds[3]], [bounds[2], bounds[3]],
-            [bounds[2], bounds[1]], [bounds[0], bounds[1]]
-        ];
-
-        map.addSource('cog-source', {
-            type: 'image',
-            url: canvas.toDataURL(),
-            coordinates: coords
-        });
-        map.addLayer({
-            id: 'cog-layer', type: 'raster', source: 'cog-source',
-            paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
-        }, 's2-points');
-
-        activeEl?.classList.remove('loading');
-    } catch (err) {
-        console.error('Failed to load S2 COG:', err);
-        activeEl?.classList.remove('loading');
-    }
 }
 
 function showFeatureDetail(feature) {
@@ -1217,9 +1068,8 @@ function showFeatureDetail(feature) {
     activateSelection(selOpts);
 
     if (layer === 's2-points') {
-        // Don't cancel enhance — let it run in background
-        const cluster = getCluster(feature.properties.id);
-        if (cluster) showS2ClusterDetail(cluster);
+        const site = s2.get(feature.properties.id);
+        if (site) showS2Detail(site);
     } else {
         if (layer.startsWith('flare')) showFlareDetail(feature);
         else if (layer.startsWith('plumes-')) {
@@ -1399,11 +1249,6 @@ function showFlareDetail(feature) {
 
     db.queryDetections(p.flare_id).then(detections => {
         renderSparkline(detections);
-        const btn = document.createElement('button');
-        btn.className = 'btn-action enhance-btn';
-        btn.textContent = 'Enhance with Sentinel-2';
-        btn.addEventListener('click', () => showEnhanceDetail(feature));
-        $('intensity-chart').appendChild(btn);
     }).catch(() => {});
 }
 
@@ -1542,155 +1387,72 @@ function showInfraDetail(feature) {
     ]);
 }
 
-function showEnhanceDetail(feature) {
-    const p = feature.properties;
-    updateHash({ vnf: p.flare_id, mode: 's2' });
-    activateSelection({ flareId: p.flare_id });
-
-    openDetail(`Sentinel-2 · Flare ${p.flare_id}`, p.lat, p.lon, [
-        `<div id="s2-stop-section">
-            <button class="btn-action stop-analysis-btn" id="s2-stop-btn">Stop Analysis</button>
-        </div>`,
-        card.section('s2-cluster-list'),
-    ]);
-    $('s2-stop-btn').addEventListener('click', () => {
-        cancelEnhance(map);
-        $('s2-stop-section').innerHTML = '';
-    });
-    const badge = $('detail-badge');
-    badge.className = 'status-badge s2';
-    badge.id = 's2-badge';
-    badge.textContent = 'Enhancing';
-    badge.classList.remove('hidden');
-    $('overlap-nav').classList.add('hidden');
-
-    setUpdateCallback((s) => {
-        const s2b = $('s2-badge');
-        if (!s2b) return;
-
-        if (s.enhancing) {
-            s2b.textContent = s.progress?.total
-                ? `${s.progress.done} / ${s.progress.total}${s.progress.skipped ? ` (${s.progress.skipped} cached)` : ''}`
-                : 'Searching...';
-        } else if (s.error) {
-            s2b.className = 'status-badge excluded';
-            s2b.textContent = 'Failed';
-        }
-
-        if (!s.enhancing) $('s2-stop-section')?.replaceChildren();
-
-        if (s.clusters?.length) {
-            if (!s.enhancing) {
-                s2b.textContent = `${s.clusters.length} source${s.clusters.length !== 1 ? 's' : ''}`;
-            }
-            const list = $('s2-cluster-list');
-            if (list) {
-                list.className = 'enhance-results';
-                list.innerHTML = s.clusters.map(c =>
-                    `<div class="enhance-cluster" data-id="${c.id}">
-                        <span class="cluster-dot" style="background:${b12Color(c.max_b12)}"></span>
-                        B12 ${c.max_b12.toFixed(2)} · ${c.detection_count} det · ${c.first_date}${c.first_date !== c.last_date ? ` – ${c.last_date}` : ''}${c.likely_glint === true ? ' · <span style="color:#ffc857">glint?</span>' : ''}
-                    </div>`
-                ).join('');
-                list.querySelectorAll('.enhance-cluster').forEach(el => {
-                    el.addEventListener('click', () => {
-                        const cluster = getCluster(el.dataset.id);
-                        if (cluster) {
-                            map.flyTo({ center: [cluster.lon, cluster.lat], zoom: 17 });
-                            showS2ClusterDetail(cluster);
-                        }
-                    });
-                });
-            }
-        }
-    });
-
-    enhance(feature, map);
-}
-
-// Render an inline warning callout for S2 clusters that look like sun glint or
-// otherwise warrant manual review. Returns '' if nothing to flag.
-function glintNoticeHtml(cluster) {
+// Render an inline review callout for uncorroborated S2 sites whose spectral
+// signature looks more like sun glint than combustion. Returns '' if nothing to
+// flag (corroborated sites are confirmed real, so never flagged).
+function glintNoticeHtml(site) {
+    if (site.corroborated) return '';
     const notes = [];
-    if (cluster.likely_glint === true) {
-        const ratio = cluster.median_b12_b11_ratio?.toFixed(2) ?? '?';
-        notes.push(`<strong>Likely sun glint.</strong> Median peak B12/B11 ratio <code>${ratio}</code> — real flares emit at temperatures where this ratio exceeds 1.15. A solar reflection off metal is the typical cause at this signal level.`);
-    } else if (cluster.persistence != null && cluster.persistence > 1.0) {
-        notes.push(`<strong>Review me.</strong> Persistence <code>${cluster.persistence.toFixed(2)}</code> &gt; 1 — more detection days than cloud-free observations. Bright targets that punch through cloud screening (e.g. metal glint) often show this pattern.`);
+    if (site.b12_b11_ratio != null && site.b12_b11_ratio < 1.15) {
+        notes.push(`<strong>Review me.</strong> Peak B12/B11 ratio <code>${site.b12_b11_ratio.toFixed(2)}</code> — real flares emit at temperatures where this exceeds ~1.15. A solar reflection off metal is the typical cause below it.`);
     }
     if (notes.length === 0) return '';
     return `<div class="glint-notice">${notes.join('<br>')}</div>`;
 }
 
-function showS2ClusterDetail(cluster) {
-    closeS2Pixels();
-    updateHash({ s2: cluster.id });
-    activateSelection({ flareId: cluster.flare_id });
+// Static detail card for a permian-flaring catalogue site (no live detection).
+function showS2Detail(site) {
+    updateHash({ s2: site.id });
+    activateSelection({ s2Id: site.id });
 
-    const dets = (cluster.detections || []).slice().sort((a, b) => b.date.localeCompare(a.date));
-    const eventListHtml = dets.map(d => `<div class="s2-event-item" data-date="${d.date}">
+    const dets = (site.detections || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+    const eventListHtml = dets.map(d => `<div class="s2-event-item">
             <span class="s2-event-dot" style="background:${b12Color(d.max_b12)}"></span>
             <span class="s2-event-date">${formatDate(d.date)}</span>
             <span class="s2-event-b12">B12 ${d.max_b12.toFixed(2)}</span>
         </div>`).join('');
 
-    openDetail(`S2 Source ${cluster.id}`, cluster.lat, cluster.lon, [
-        glintNoticeHtml(cluster),
+    const span = site.n_dates === 1
+        ? `${site.n_dates} date · ${site.n_detections} detection${site.n_detections !== 1 ? 's' : ''}`
+        : `${site.n_dates} dates · ${site.n_detections} detections`;
+
+    openDetail('S2 flare site', site.lat, site.lon, [
+        glintNoticeHtml(site),
         card.stats([
-            { value: cluster.max_b12.toFixed(2), unit: 'peak B12' },
-            { value: cluster.avg_b12.toFixed(2), unit: 'mean B12' },
+            { value: site.max_b12.toFixed(2), unit: 'peak B12' },
+            { value: site.mean_max_b12.toFixed(2), unit: 'mean B12' },
         ]),
         card.fields(
-            ['First detected', formatDate(cluster.first_date)],
-            ['Last detected', formatDate(cluster.last_date)],
-            cluster.median_b12_b11_ratio != null && ['Median B12 / B11', cluster.median_b12_b11_ratio.toFixed(2)],
-            cluster.min_sun_elevation != null && ['Min sun elevation', `${cluster.min_sun_elevation.toFixed(0)}°`],
-            cluster.persistence != null && ['Persistence', cluster.persistence.toFixed(2)],
+            ['First detected', formatDate(site.first_date)],
+            ['Last detected', formatDate(site.last_date)],
+            ['Detections', span],
+            site.b12_b11_ratio != null && ['Peak B12 / B11', site.b12_b11_ratio.toFixed(2)],
+            site.min_glint_score != null && ['Min glint score', site.min_glint_score.toFixed(2)],
+            site.total_score != null && ['Score', site.total_score.toFixed(2)],
+            ['Corroboration', site.corroborated ? (site.nearest_source || 'yes') : 'none'],
         ),
         card.section('s2-permit-section'),
         `<div id="s2-event-list" class="s2-event-list">${eventListHtml}</div>`,
     ]);
     const badge = $('detail-badge');
-    if (cluster.likely_glint === true) {
-        badge.className = 'status-badge warn';
-        badge.textContent = 'likely glint';
+    if (site.corroborated) {
+        badge.className = 'status-badge s2';
+        badge.textContent = site.nearest_source ? `corroborated · ${site.nearest_source}` : 'corroborated';
     } else {
         badge.className = 'status-badge s2';
-        badge.textContent = `${cluster.detection_count} det`;
+        badge.textContent = `${site.n_detections} det`;
     }
     badge.classList.remove('hidden');
     $('overlap-nav').classList.add('hidden');
 
-    document.querySelectorAll('.s2-event-item').forEach(el => {
-        el.addEventListener('click', async () => {
-            const date = el.dataset.date;
-            const dLat = 400 * LAT_PER_M;
-            const dLon = 400 * LON_PER_M(cluster.lat);
-            const bbox = [cluster.lon - dLon, cluster.lat - dLat, cluster.lon + dLon, cluster.lat + dLat];
+    if (site.detections?.length) renderS2Chart(site.detections);
 
-            el.classList.add('loading');
-            try {
-                let item = null;
-                for await (const it of searchSTAC(bbox, date, date)) { item = it; break; }
-                if (!item?.bands?.b12 || !item.epsg) { el.classList.remove('loading'); return; }
-                await loadS2Pixels({ date, cog_b12: item.bands.b12, epsg: item.epsg }, cluster.lon, cluster.lat);
-            } catch (err) {
-                console.error('STAC lookup failed:', err);
-                el.classList.remove('loading');
-            }
-        });
-    });
-
-    if (cluster.detections?.length) renderS2Chart(cluster.detections);
-
-    const dates = (cluster.detections || []).map(d => d.date).filter(Boolean).sort();
-    const firstDate = dates[0] || null, lastDate = dates[dates.length - 1] || null;
     Promise.all([
-        db.queryNearbyFacilities(cluster.lat, cluster.lon),
-        db.queryPermitFilings(cluster.lat, cluster.lon),
+        db.queryNearbyFacilities(site.lat, site.lon),
+        db.queryPermitFilings(site.lat, site.lon),
     ]).then(([facs, filings]) => {
         const el = $('s2-permit-section');
-        if (el) el.innerHTML = nearbyInfraHtml(facs, filings, firstDate, lastDate);
+        if (el) el.innerHTML = nearbyInfraHtml(facs, filings, site.first_date, site.last_date);
     }).catch(() => {});
 }
 

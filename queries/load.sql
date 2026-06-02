@@ -156,6 +156,12 @@ SELECT
 FROM read_csv('data/plumes_imeo.csv', header=true, auto_detect=true)
 WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
 
+-- Sentinel-2 flare catalogue (top-scoring sites from permian-flaring; refreshed
+-- by `make s2`). One row per H3 site; `detections` is a JSON array of per-date
+-- observations. Faithful load — clipping/ranking already applied at fetch.
+CREATE OR REPLACE TABLE raw.s2_catalogue AS
+SELECT * FROM read_parquet('data/s2_catalogue.parquet');
+
 -- Spatial indexes
 CREATE INDEX idx_wells_geom ON raw.wells USING RTREE (geom);
 CREATE INDEX idx_vnf_geom ON raw.vnf USING RTREE (geom);

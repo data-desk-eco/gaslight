@@ -103,6 +103,18 @@ COPY (
     ORDER BY mf.lease_district, mf.lease_number, mf.year, mf.month
 ) TO 'web/data/production.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
+-- Sentinel-2 flare sites (whole top-scoring catalogue; site-level with the
+-- per-date `detections` JSON kept for the timeline). The web map reads these
+-- columns by name (web/db.js queryS2Precomputed, web/s2.js).
+COPY (
+    SELECT h3, lon, lat, n_detections, n_dates,
+        CAST(first_date AS VARCHAR) AS first_date,
+        CAST(last_date AS VARCHAR) AS last_date,
+        max_b12, mean_max_b12, b12_b11_ratio, min_glint_score,
+        total_score, corroborated, nearest_source, detections
+    FROM permian.s2_detections
+) TO 'web/data/s2.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
 -- Gatherers/purchasers/nominators (flare-linked leases only)
 COPY (
     SELECT g.oil_gas_code, g.district, g.lease_number, g.type, g.percentage,

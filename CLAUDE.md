@@ -13,13 +13,13 @@ Flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite flare 
 - `scripts/fetch_plumes.py` — fetches Carbon Mapper + IMEO methane plume data
 - `scripts/fetch_r3.py` — fetches RRC R-3 gas processing facility locations
 - `queries/load.sql` → `rrc.sql` → `publish.sql` → `export.sql` — SQL pipeline (load → normalise → build shareable DB → export parquets)
+- `queries/s2.sql` — fetch+shape permian-flaring's S2 catalogue into the committed `data/s2_catalogue.parquet` (run by `make s2`)
 - `scripts/build_dictionary.py` — generates the data dictionary (nested markdown under `docs/data-dictionary/` + in-DB `_dictionary`/`_sources` tables) from `docs/data-dictionary/_meta.yaml`
 - `web/` — interactive map (MapLibre GL + DuckDB WASM, zero npm deps)
-- `web/app.js` — main app: map setup, feature detail panels, S2 enhancement UI, shared helpers (`$`, `openDetail`, `fmtCoords`, color ramps, `renderTimeline`)
+- `web/app.js` — main app: map setup, feature detail panels, S2 site detail card, shared helpers (`$`, `openDetail`, `fmtCoords`, color ramps, `renderTimeline`)
 - `web/db.js` — DuckDB WASM wrapper: all data queries, operator attribution index, bbox helpers
 - `web/drawer.js` — sliding data drawer (tabbed table view of flares/permits/plumes/wells with sort, viewport-sync, keyboard nav)
-- `web/enhance.js` — Sentinel-2 "Enhance" feature (spawns s2-flares worker for single-flare deep analysis)
-- `web/vendor/s2-flares/` — shared Sentinel-2 detection library (git submodule)
+- `web/s2.js` — loads the S2 catalogue (`web/data/s2.parquet`) for display; one row per H3 site with an embedded per-date `detections` array
 
 ## Architecture
 
@@ -36,6 +36,8 @@ Pipeline: `load → rrc → publish → export`
 
 The shareable DB is documented by `docs/data-dictionary/` (see `scripts/build_dictionary.py`).
 
+**S2 layer (consumed, not produced):** gaslight runs no S2 detection of its own. The sibling **permian-flaring** repo (the S2 detection engine + paper) publishes a per-date-enriched, site-level catalogue. `make s2` is a **fetch step** (symmetric to `make plumes`/`make r3`): `queries/s2.sql` reads p-f's export, applies the Permian/Texas clip + a top-`S2_LIMIT`-by-score cap, and writes the committed source file `data/s2_catalogue.parquet`. From there S2 flows through the *normal* pipeline like every other table — `load.sql` → `raw.s2_catalogue`, `publish.sql` → `permian.s2_detections` (→ `dist.s2_detections` in the shareable DB), `export.sql` → `web/data/s2.parquet`. One row per H3 site, with the per-date observations embedded as a `detections` JSON array. So gaslight rebuilds without p-f present (the catalogue is committed); only `make s2` needs p-f. Data flow is bidirectional but one-way each: gaslight → p-f (ground-truth CSVs, via p-f's `sql/40_truth.sql`); p-f → gaslight (the ranked S2 catalogue). Caveat: p-f's S2 window is 2025-01-01..2026-05-31, so the S2 layer covers only 2025–2026 (other layers are 2021+).
+
 Client-side (DuckDB WASM): operator attribution, plume display, operator search, drawer text search — all computed live from the exported parquets.
 
 ### Web app structure
@@ -45,7 +47,7 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 - **app.js** — entry point. Initialises map, loads data, binds UI. Contains shared utilities: `$` (DOM lookup), `openDetail` (detail panel lifecycle), `fmtCoords`, color ramp functions (`b12Color`, `mwColor`), `renderTimeline` (shared SVG chart builder for both VNF sparklines and S2 timelines), and geo constants (`LAT_PER_M`, `lonPerM`).
 - **db.js** — DuckDB WASM interface. Loads parquets, exposes typed query functions. Shared helpers: `bboxDeltas` (lat/lon deltas from radius). `queryDrawerRows`/`queryMapSearch` power the drawer's text search with DuckDB ILIKE on text columns.
 - **drawer.js** — data drawer with tabbed tables (flares/permits/plumes/wells/infra), column sorting, keyboard navigation (j/k/h/l/g/G), viewport-synced queries, and text search. Search box filters both the table and the map layer via DuckDB ILIKE queries on text columns. Clicking a map feature switches to the relevant tab and pins the selected row at the top. Selection persists across pan/zoom and deep links.
-- **enhance.js** — manages s2-flares Web Worker lifecycle, localStorage caching, cluster state.
+- **s2.js** — loads permian-flaring's score-capped S2 catalogue (`s2.parquet`) into a `Map<h3, site>`. Each site carries its per-date `detections` array (parsed from the embedded JSON column) for the timeline chart. Display-only; no detection runs in-browser.
 - **style.css** — all styling via CSS custom properties. `.btn-action` base class for action buttons. `.glass` / `.panel` for frosted-glass panels.
 
 ## Methodology
@@ -54,9 +56,8 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 2. **Lease matching**: flares matched to leases via nearby wells within 375m. Wells carry `lease_district` and `lease_number` from RRC records; grouping by these fields links flares to their underlying leases.
 3. **Nearby infrastructure (not attribution)**: flare and S2 cards deliberately do *not* name a single operator/facility with a confidence verdict — proximity within a satellite pixel is not ownership, and definitive attribution produced too many wrong calls. Instead the card (`nearbyInfraHtml` in app.js) lists nearby permitted flares (within 375m, operator + site + distance) and nearby R-3 gas plants (within 5km, name + distance); the VNF card additionally lists nearby leases grouped by operator (`vnf-lease-section`). Reader judges.
 4. **Facility matching**: RRC R-3 gas processing facilities matched to flares within 5km, listed as "Nearby gas plants" in the detail card. Gas Plant permits also filtered from the permits layer.
-5. **Sentinel-2 enhancement**: Per-flare deep analysis using s2-flares library. Searches Sentinel-2 archive (last year) over a 750m bbox, runs detection at 20m resolution, clusters results incrementally after each image. Accessed via "Enhance with Sentinel-2" button in flare detail panel. Each S2 cluster is a first-class map feature with its own detail card (B12 stats, timeline chart, permit coverage) and deep link (`#s2=HASH`). Clusters get a deterministic hash ID based on anchor position. Enhancement runs in the background — navigating away doesn't cancel it; only the explicit "Stop Analysis" button does. Stopped analyses resume from where they left off (worker skips already-processed dates). Results cached to localStorage with a `complete` flag distinguishing finished vs partial runs.
+5. **S2 flare layer (display-only)**: the top `S2_LIMIT` sites by score from permian-flaring's published S2 catalogue, ingested into the gaslight DB (`s2_detections`) and projected to the web map. Each site is a first-class map feature with its own static detail card (B12 stats, per-date timeline chart, glint/score/corroboration, nearby infrastructure) and deep link (`#s2=<h3>`, keyed by the stable H3 site id). The per-date timeline is rendered from the site's embedded `detections` JSON array via the shared `renderTimeline` helper. gaslight does no detection itself — see Architecture (S2 layer). Refresh from p-f with `make s2`, then `make db`.
 6. **Reported flaring volumes**: Monthly lease-level gas disposition data from RRC PDQ (Production Data Query). Disposition code 04 = gas vented/flared. `rrc.production` stores monthly totals per lease (gas flared MCF + casinghead gas flared MCF). Flaring intensity = flared gas / total gas produced (%). Shown per-well in detail cards with monthly production charts.
-7. **S2 pixel overlay**: Clicking a detection date in an S2 cluster detail card fetches the Sentinel-2 B12 COG via STAC, reads a 250m window around the cluster, and renders hot pixels (>0.6 reflectance) on the map with a magma colormap and nearest-neighbour resampling.
 
 ## Key details
 
@@ -70,7 +71,7 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 - **Match radius**: 375m (VIIRS M-band pixel radius = 750m / 2). Bounding box pre-filter ±0.0034° (~375m).
 - **VIIRS pixel squares**: 750m squares generated client-side in the web app for visual review of spatial matching.
 - **Selection behaviour**: clicking a feature selects it (dims map, highlights selected + associated features). Clicking anywhere while a feature is selected always deselects first — you can't jump directly from one selection to another.
-- **Deep linking**: all params in the hash alongside MapLibre's map position. `#map=zoom/lat/lon&vnf=ID` opens VNF detail, `#map=…&vnf=ID&mode=s2` starts S2 enhancement, `#map=…&s2=HASH` opens an S2 cluster detail card.
+- **Deep linking**: all params in the hash alongside MapLibre's map position. `#map=zoom/lat/lon&vnf=ID` opens VNF detail, `#map=…&s2=<h3>` opens an S2 site detail card (keyed by the stable H3 id).
 - **Colors**: defined centrally as CSS custom properties (`--color-flare`, `--color-permit`, `--color-plume`, `--color-well`) in `:root`; JS reads them via `getComputedStyle`. Color ramps for intensity (`b12Color`, `mwColor`) are shared functions in app.js. Wells use the same dark-red→white-hot ramp as flares, driven by a combined intensity×volume score.
 - **Legend order**: Flare sites → Permit locations → Methane plumes → Infrastructure → Oil/gas wells.
 
@@ -84,6 +85,7 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 - `make serve` — dev server on :8080
 - `make plumes` — fetch latest plume data
 - `make r3` — fetch RRC R-3 gas processing facilities
+- `make s2` — fetch permian-flaring's S2 catalogue → `data/s2_catalogue.parquet` (run `make s2-export` in permian-flaring first, then `make db` to ingest)
 - `make clean` — removes derived data
 - `make help` — list all targets
 - `duckdb data/data.duckdb` — query interactively

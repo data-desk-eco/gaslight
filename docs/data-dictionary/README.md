@@ -95,12 +95,12 @@ latitude/longitude columns).
 | [`plumes`](plumes.md) | one row per plume observation (`plume_id`) | 6,581 | Methane plume detections (Carbon Mapper + UNEP IMEO). |
 | [`facilities`](facilities.md) | one row per gas processing facility (`serial_number`) | 596 | RRC R-3 gas processing facilities (gas plants). |
 | [`operators`](operators.md) | one row per RRC operator number | 77,888 | RRC operator-number → name reference lookup. |
-| [`s2_detections`](s2_detections.md) | one row per Sentinel-2 detection (member of a cluster) | 7,241 | Sentinel-2 SWIR flare detections, clustered (refresh pending). |
+| [`s2_detections`](s2_detections.md) | one row per H3 flare site | 5,000 | Sentinel-2 SWIR flare sites (top-scoring, from permian-flaring). |
 
 ## Sources & attribution
 
 - **VIIRS Nightfire (VNF)** — Earth Observation Group, Payne Institute, Colorado School of Mines. Free for use with attribution to the Earth Observation Group. <https://eogdata.mines.edu/products/vnf/>
-- **Sentinel-2 SWIR flare detection** — Copernicus / ESA imagery, processed by the s2-flares library. Copernicus Sentinel data, free and open. Detections are derived products. <https://dataspace.copernicus.eu/>
+- **Sentinel-2 SWIR flare detection** — Copernicus / ESA imagery, detected by the permian-flaring project. Copernicus Sentinel data, free and open. Detections are derived products. <https://dataspace.copernicus.eu/>
 - **RRC Statewide Rule 32 flaring/venting permits** — Texas Railroad Commission. Texas public records. <https://www.rrc.texas.gov/>
 - **RRC well, operator, and P-4 gatherer records** — Texas Railroad Commission (Mainframe File Transfer, EBCDIC). Texas public records. <https://www.rrc.texas.gov/resource-center/research/data-sets-available-for-download/>
 - **RRC Production Data Query (PDQ)** — Texas Railroad Commission. Texas public records. <https://www.rrc.texas.gov/resource-center/research/online-research-queries/>

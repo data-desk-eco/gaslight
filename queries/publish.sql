@@ -252,10 +252,20 @@ SELECT operator_number AS operator_no, operator_name, status
 FROM raw.operators;
 
 -- ---------------------------------------------------------------------------
--- s2_detections — Sentinel-2 flare detections (current method; refresh pending)
+-- s2_detections — Sentinel-2 SWIR flare sites from permian-flaring (top-scoring,
+-- Permian-clipped). One row per H3 site; `detections` is a JSON array of the
+-- site's per-date observations (date, max_b12, pixels). 2025-01..2026-05 window.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE TABLE permian.s2_detections AS
-SELECT * FROM read_parquet('web/data/s2.parquet');
+SELECT
+    h3, lat, lon,
+    n_detections, n_dates,
+    first_date::DATE AS first_date,
+    last_date::DATE AS last_date,
+    max_b12, mean_max_b12, b12_b11_ratio, min_glint_score,
+    total_score, corroborated, nearest_source,
+    detections
+FROM raw.s2_catalogue;
 
 -- ---------------------------------------------------------------------------
 -- Copy the clean schema into the standalone shareable database.

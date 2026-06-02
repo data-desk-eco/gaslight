@@ -1,5 +1,7 @@
 data/*
 !data/.gitkeep
+!data/excluded_facilities.csv
+!data/s2_catalogue.parquet
 dist/
 .env
 .DS_Store

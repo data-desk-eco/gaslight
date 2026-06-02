@@ -46,31 +46,28 @@ data/vnf_profiles/.done:
 	uv run scripts/fetch_vnf.py
 	@touch $@
 
-# --- S2 flare detection (via openflaring, S2-only) ---
+# --- S2 flare catalogue (fetched from permian-flaring) ---
+#
+# gaslight does NO S2 detection. permian-flaring (the detection engine + paper)
+# is the upstream. `make s2` is a FETCH step (like `make plumes`/`make r3`): it
+# refreshes the committed source file data/s2_catalogue.parquet from p-f's
+# export, after which the normal pipeline (load → publish → export) ingests it
+# like any other table. Run `make s2-export` in permian-flaring first to
+# (re)build PF_CATALOGUE, then `make s2 && make db` to bake it into the DB.
 
-S2_BBOX     := -104.5,30.0,-100.0,33.5
-S2_START    := 2021-01-01
-S2_SCORE    := 1.0          # unanchored-cluster score gate, applied in s2.sql
-                            # (osm-/ogim-anchored clusters are always kept)
-OPENFLARING := $(HOME)/Tools/openflaring
+PF_CATALOGUE := $(HOME)/Research/permian-flaring/data/s2_catalogue_detail.parquet
+# Number of top-scoring catalogue sites to keep, applied in s2.sql. The full
+# in-basin catalogue is ~60k sites — far more than the product needs.
+S2_LIMIT     := 5000
 
-s2: web/data/s2.parquet
+s2: data/s2_catalogue.parquet
 
-# Raw openflaring detections: S2-only (OSM/OGIM anchors, no Sentinel-3), keep
-# everything (--score-threshold 0) — the quality gate is applied later in
-# s2.sql so it can be re-tuned without re-running detection.
-data/s2-of.parquet:
-	cd $(OPENFLARING) && uv run openflaring \
-		--bbox $(S2_BBOX) --start $(S2_START) \
-		--no-s3 --score-threshold 0 \
-		--out $(CURDIR)/$@
-
-web/data/s2.parquet: data/s2-of.parquet queries/s2.sql
+data/s2_catalogue.parquet: $(PF_CATALOGUE) queries/s2.sql
 	duckdb \
-		-c "SET VARIABLE of_parquet='$(CURDIR)/data/s2-of.parquet'" \
-		-c "SET VARIABLE score_gate=$(S2_SCORE)" \
+		-c "SET VARIABLE pf_catalogue='$(PF_CATALOGUE)'" \
+		-c "SET VARIABLE score_limit=$(S2_LIMIT)" \
 		-c ".read queries/s2.sql"
-	@echo "S2 precomputed: $@ ($$(du -h $@ | cut -f1))"
+	@echo "S2 catalogue: $@ ($$(du -h $@ | cut -f1)) — run 'make db' to ingest"
 
 # --- database ---
 
@@ -82,7 +79,7 @@ refresh:
 db: dist/gaslight.duckdb export
 
 # Foundation: faithful raw load + normalised rrc tables
-data/data.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_profiles/.done data/flare_locations.csv data/permit_details.csv data/permit_properties.csv data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/pdq/.done queries/load.sql queries/rrc.sql
+data/data.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_profiles/.done data/flare_locations.csv data/permit_details.csv data/permit_properties.csv data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/pdq/.done data/s2_catalogue.parquet queries/load.sql queries/rrc.sql
 	@rm -f $@
 	duckdb $@ < queries/load.sql
 	duckdb $@ < queries/rrc.sql
@@ -95,8 +92,6 @@ data/data.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_pr
 # the data dictionary (nested markdown + in-DB _dictionary/_sources tables).
 publish: dist/gaslight.duckdb
 
-# NB: publish.sql reads the existing web/data/s2.parquet at runtime but it is
-# deliberately not a prerequisite — regenerating it is a separate `make s2` step.
 dist/gaslight.duckdb: data/data.duckdb queries/publish.sql docs/data-dictionary/_meta.yaml scripts/build_dictionary.py
 	@rm -f $@
 	@mkdir -p dist
@@ -118,7 +113,7 @@ serve:
 	uv run python -m http.server 8080 -d web
 
 clean:
-	rm -f data/data.duckdb dist/gaslight.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/s2-of.parquet
+	rm -f data/data.duckdb dist/gaslight.duckdb data/wells.csv data/operators.csv data/.rrc_downloaded data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv
 
 help:
 	@echo "gaslight — dark flaring analysis for the Permian Basin"
@@ -137,7 +132,7 @@ help:
 	@echo "  make plumes          Fetch Carbon Mapper + IMEO plumes"
 	@echo "  make r3              Fetch RRC R-3 gas processing facilities"
 	@echo ""
-	@echo "  make s2              Run S2 flare detection (Lambda) + export parquet"
+	@echo "  make s2              Fetch permian-flaring's S2 catalogue → data/s2_catalogue.parquet (then make db)"
 	@echo ""
 	@echo "  make clean           Remove derived data"
 	@echo "  make help            This message"

@@ -17,8 +17,6 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
 
       - name: Vendor JS dependencies
         run: scripts/vendor.sh
@@ -26,7 +24,7 @@ jobs:
       - name: Prepare dist
         run: |
           mkdir -p dist
-          cp web/index.html web/app.js web/db.js web/drawer.js web/enhance.js web/precomputed.js web/style.css dist/
+          cp web/index.html web/app.js web/db.js web/drawer.js web/s2.js web/style.css dist/
           cp -rL web/vendor dist/vendor
           cp -rL web/data dist/data
 
