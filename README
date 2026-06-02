@@ -1,216 +1,40 @@
-Gaslight
+gaslight
 ========
 
-Flaring analysis for the Permian Basin of West Texas. Gaslight
-cross-references satellite-detected flares with public state records —
-permits, wells, leases, self-reported flaring volumes, and methane
-plume observations — so you can see where gas is being burned and
-compare it against what operators tell regulators.
+Flaring analysis for the Permian Basin. It cross-references satellite-detected
+flares against Texas state records — permits, wells, leases, reported flaring
+volumes, methane plumes — so you can see where gas is being burned and how that
+squares with what operators tell regulators.
 
-  VIIRS Nightfire (satellite flare detections)
-  + Sentinel-2 SWIR flare catalogue (from permian-flaring)
-  + SWR 32 flaring/venting exception permits (Texas RRC)
-  + Wells, leases, operators, gatherers (RRC EBCDIC bulk files)
-  + Self-reported flared volumes (RRC PDQ production data)
-  + RRC R-3 gas processing facilities
-  + Carbon Mapper / UNEP IMEO methane plumes
-  ─────────────────────────────────────────────────────
-  → dist/gaslight.duckdb  (the shareable dataset)
-  → research.datadesk.eco/gaslight/  (the interactive map)
+Live map: http://research.datadesk.eco/gaslight/
 
+The data
+--------
 
-The Data
-========
+Everything lands in a single, standalone DuckDB file, `dist/gaslight.duckdb` —
+one plain schema, lat/lon columns, no geometry blobs. Open it with the free
+duckdb CLI (or read straight into pandas/R/QGIS):
 
-Two ways in, both built from the same pipeline.
+    duckdb dist/gaslight.duckdb
 
-1. The dataset: dist/gaslight.duckdb
-------------------------------------
+Every table and column is documented in `docs/data-dictionary/`, and the same
+notes live inside the database (`SELECT * FROM _dictionary`).
 
-The product is a single, standalone DuckDB file:
+One thing worth knowing up front: the flaring *volumes* are self-reported by
+operators to the RRC, while the satellite layers are independent observations
+from space. They don't always agree — that gap is usually the point.
 
-  dist/gaslight.duckdb
+The Sentinel-2 flare layer is detected by the sibling permian-flaring project;
+gaslight just fetches and displays it (`make s2`).
 
-It is self-contained — one plain `main` schema, no internal staging,
-no geometry blobs. Latitude/longitude are kept as decimal-degree
-columns (WGS84), so every table reads cleanly into pandas, R, QGIS,
-or plain SQL. This is the one file to share and analyse.
+Building it
+-----------
 
-Open it with the free DuckDB CLI:
+    uv sync
+    make refresh     # rebuild the database from scratch
+    make serve       # run the map locally on :8080
+    make help        # everything else
 
-  duckdb dist/gaslight.duckdb
-
-  -- list tables
-  SHOW TABLES;
-  -- the brightest flare sites by total radiant heat
-  SELECT flare_id, lat, lon, detection_days, total_rh_mw
-  FROM flare_sites ORDER BY total_rh_mw DESC LIMIT 20;
-
-Or from Python (`pip install duckdb`):
-
-  import duckdb
-  con = duckdb.connect("dist/gaslight.duckdb")
-  df = con.sql("SELECT * FROM flare_sites").df()   # straight to pandas
-
-R users can read it via the duckdb package; QGIS can load any table
-through its latitude/longitude columns.
-
-Tables:
-
-  flare_sites       VIIRS-observed flare locations + how active each is
-  flare_detections  per-flare-site, per-night detection time series
-  permits           RRC SWR 32 flaring/venting exception permits
-  permit_leases     leases underlying each permit filing
-  wells             every Permian well, w/ operator + lease flaring metrics
-  leases            lease-level rollup of reported flaring + intensity
-  monthly_flaring   monthly lease-level gas flared/vented + produced
-  gatherers         gatherers, purchasers, nominators per lease
-  plumes            methane plume detections (Carbon Mapper + IMEO)
-  facilities        RRC R-3 gas processing facilities (gas plants)
-  operators         RRC operator number → name lookup
-  s2_detections     Sentinel-2 SWIR flare catalogue (see below)
-
-Read this before comparing volumes: the flaring VOLUMES
-(monthly_flaring, and the flared_mcf / flaring_intensity_pct columns)
-are SELF-REPORTED by operators to the RRC. The satellite layers
-(flare_sites, flare_detections, s2_detections) are INDEPENDENT
-observations from space. They do not always agree — and that gap is
-the story. Treat the two families of evidence as separate, not
-interchangeable.
-
-Every table, column, and source is documented in the data dictionary:
-
-  docs/data-dictionary/      (browsable markdown, start at README.md)
-
-The same content is embedded inside the database itself, so you can
-query it without leaving SQL:
-
-  SELECT * FROM _dictionary WHERE table_name = 'wells';
-  SELECT * FROM _sources;
-
-2. The interactive map
-----------------------
-
-  http://research.datadesk.eco/gaslight/
-
-A live MapLibre map of the same data — a flare-centric subset
-projected to parquet files and queried in your browser with DuckDB
-WASM. Click a flare to see its detail card, nearby permits and wells,
-reported volumes, and Sentinel-2 history. Zero install; deep links in
-the URL hash for sharing a view or a specific flare.
-
-
-How It Works
-============
-
-For each VIIRS-detected flare, gaslight assembles CONTEXT, not a
-verdict. It lists:
-
-  - permitted flares within 375m (the VIIRS M-band pixel radius),
-  - wells and the leases they belong to within 375m,
-  - R-3 gas processing plants within 5km.
-
-It deliberately does NOT name a single operator with a confidence
-score. Proximity inside a single satellite pixel is not ownership, and
-forcing an attribution produced too many wrong calls. The card shows
-who and what is nearby; the reader judges.
-
-Leases are the bridge to volumes: wells carry their lease district and
-number from RRC records, and grouping by those fields connects a flare
-to its lease's self-reported flaring from RRC PDQ production data.
-
-Methane plumes (Carbon Mapper + UNEP IMEO) are overlaid spatially for
-cross-reference.
-
-Scope: everything is clipped to the Permian bounding box
-(30.0–33.5°N, -104.5 to -100.0°W; above 32°N, east of -103.064°W to
-stay in Texas). Time-series layers cover 2021 onward. Matching uses a
-fixed 375m radius. Nothing is imputed — missing values stay missing.
-
-
-The Sentinel-2 layer
-====================
-
-Gaslight runs NO Sentinel-2 detection of its own. The S2 flare layer
-is a score-capped catalogue of flare sites CONSUMED FROM THE SIBLING
-permian-flaring REPOSITORY — that project is the Sentinel-2 detection
-engine and the methods paper.
-
-Gaslight pulls the catalogue with a fetch step:
-
-  make s2     # writes data/s2_catalogue.parquet from permian-flaring
-
-It then flows through the normal pipeline into the s2_detections
-table — one row per H3 site, with each date's observations embedded as
-a `detections` JSON array. The S2 layer covers 2025–2026 (permian-
-flaring's S2 analysis window); the other layers are 2021+.
-
-
-Rebuilding It
-=============
-
-Setup:
-
-  uv sync
-  uv run playwright install chromium    # only needed for RRC downloads
-
-Requires: uv and the duckdb CLI. Playwright/Chromium is only used by
-the RRC bulk-file downloader.
-
-Pipeline (load → rrc → publish → export):
-
-  make refresh    Rebuild the whole database from scratch
-  make db         Full pipeline: load → rrc → publish → export
-  make publish    Build the shareable dist/gaslight.duckdb + dictionary
-  make export     Re-export the web app's parquets
-  make serve      Local map on :8080
-  make help       List all targets
-
-The SQL pipeline lives in queries/:
-
-  load.sql     faithful raw load of the source files
-  rrc.sql      normalised Texas oil & gas foundation tables
-  publish.sql  builds the clean permian.* tables + dist/gaslight.duckdb
-  export.sql   projects them to web/data/*.parquet for the map
-
-Fetchers / scrapers (in scripts/, driven by make targets):
-
-  make permits          SWR 32 permit metadata
-  make permit-details   permit detail pages → CSVs
-  make wells            RRC EBCDIC well + operator records
-  make vnf              VIIRS Nightfire profiles (EOG)
-  make plumes           Carbon Mapper + IMEO methane plumes
-  make r3               RRC R-3 gas processing facilities
-  make s2               permian-flaring's S2 catalogue
-
-  duckdb data/data.duckdb   interactive queries on the working DB
-
-
-Project Structure
-=================
-
-  scripts/   scrapers, parsers, fetchers (RRC, VNF, plumes, R-3, S2)
-  queries/   SQL pipeline (load → rrc → publish → export)
-  docs/      data dictionary (docs/data-dictionary/)
-  data/      working DB, CSVs, parquets (gitignored)
-  dist/      dist/gaslight.duckdb — the shareable product
-  web/       interactive map (MapLibre GL + DuckDB WASM)
-    app.js     map setup, detail panels, shared helpers
-    db.js      DuckDB WASM queries + operator attribution
-    drawer.js  tabbed data drawer with sort + keyboard nav
-    s2.js      Sentinel-2 catalogue layer + detail cards
-    style.css  styling (CSS custom properties)
-    vendor/    vendored deps (maplibre-gl, duckdb-wasm, fonts)
-    data/      exported parquets the map loads
-
-The web app has zero npm dependencies and no build step — MapLibre GL
-and DuckDB WASM are vendored, and everything runs client-side.
-
-
-Deployment
-==========
-
-  make vendor     Download vendored JS deps (one-off / on update)
-  make export     Re-export the web parquets
-
-Push to main to deploy via GitHub Pages.
+Scrapers and the SQL pipeline live in `scripts/` and `queries/`; the web map is
+in `web/` (MapLibre GL + DuckDB WASM, no build step, no npm). Push to main to
+deploy via GitHub Pages.
