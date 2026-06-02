@@ -21,7 +21,7 @@ data/raw_html/.done: data/filings.csv
 	uv run scripts/scrape_permit_details.py
 	@touch $@
 
-data/permit_details.csv data/permit_properties.csv data/flare_locations.csv data/permit_attachments.csv: data/raw_html/.done
+data/permit_details.csv data/permit_properties.csv data/permit_locations.csv data/permit_attachments.csv: data/raw_html/.done
 	uv run scripts/parse_permit_details.py
 
 data/r3_facilities.csv:
@@ -79,7 +79,7 @@ refresh:
 db: dist/gaslight.duckdb export
 
 # Foundation: faithful raw load + normalised rrc tables
-data/data.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_profiles/.done data/flare_locations.csv data/permit_details.csv data/permit_properties.csv data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/pdq/.done data/s2_catalogue.parquet queries/load.sql queries/rrc.sql
+data/data.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_profiles/.done data/permit_locations.csv data/permit_details.csv data/permit_properties.csv data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/pdq/.done data/s2_catalogue.parquet queries/load.sql queries/rrc.sql
 	@rm -f $@
 	duckdb $@ < queries/load.sql
 	duckdb $@ < queries/rrc.sql

@@ -5,7 +5,7 @@ Reads: data/raw_html/{filing_no}.html
 Writes:
   data/permit_details.csv      — filing metadata (one row per filing)
   data/permit_properties.csv   — properties/leases (one row per property per filing)
-  data/flare_locations.csv     — flare/vent GPS locations (replaces existing)
+  data/permit_locations.csv    — flare/vent GPS locations (replaces existing)
   data/permit_attachments.csv  — attachment index
 
 Optimised: builds an id→text index per page for O(1) lookups instead of
@@ -287,7 +287,7 @@ def main():
 
     write_csv(data_dir / "permit_details.csv", DETAILS_FIELDS, all_details)
     write_csv(data_dir / "permit_properties.csv", PROPERTIES_FIELDS, all_properties)
-    write_csv(data_dir / "flare_locations.csv", LOCATIONS_FIELDS, all_locations)
+    write_csv(data_dir / "permit_locations.csv", LOCATIONS_FIELDS, all_locations)
     write_csv(data_dir / "permit_attachments.csv", ATTACHMENTS_FIELDS, all_attachments)
 
     print(f"Done. {errors} errors." if errors else "Done.", flush=True)

@@ -29,12 +29,12 @@ SELECT * FROM read_csv('data/permit_details.csv', header=true, all_varchar=true)
 CREATE OR REPLACE TABLE raw.permit_properties AS
 SELECT * FROM read_csv('data/permit_properties.csv', header=true, all_varchar=true);
 
--- Flare locations (permitted flare GPS coordinates)
-CREATE OR REPLACE TABLE raw.flare_locations AS
+-- Permitted flare/vent locations (GPS coordinates from SWR 32 filings)
+CREATE OR REPLACE TABLE raw.permit_locations AS
 SELECT * REPLACE (latitude::DOUBLE AS latitude, longitude::DOUBLE AS longitude),
     CASE WHEN latitude::DOUBLE != 0 AND longitude::DOUBLE != 0
          THEN ST_Point(longitude::DOUBLE, latitude::DOUBLE) END AS geom
-FROM read_csv('data/flare_locations.csv', header=true, all_varchar=true);
+FROM read_csv('data/permit_locations.csv', header=true, all_varchar=true);
 
 -- VNF: aggregate individual site profiles (nighttime, per site × day)
 CREATE OR REPLACE TABLE raw.vnf AS
@@ -165,5 +165,5 @@ SELECT * FROM read_parquet('data/s2_catalogue.parquet');
 -- Spatial indexes
 CREATE INDEX idx_wells_geom ON raw.wells USING RTREE (geom);
 CREATE INDEX idx_vnf_geom ON raw.vnf USING RTREE (geom);
-CREATE INDEX idx_flare_loc_geom ON raw.flare_locations USING RTREE (geom);
+CREATE INDEX idx_permit_loc_geom ON raw.permit_locations USING RTREE (geom);
 CREATE INDEX idx_plumes_geom ON raw.plumes USING RTREE (geom);

@@ -77,9 +77,9 @@ WHERE latitude != 0 AND longitude != 0
 GROUP BY 1, 2;
 
 -- ---------------------------------------------------------------------------
--- flare_sites — one row per VIIRS Nightfire flare site (2021+, Permian)
+-- vnf_sites — one row per VIIRS Nightfire flare site (2021+, Permian)
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE TABLE permian.flare_sites AS
+CREATE OR REPLACE TABLE permian.vnf_sites AS
 WITH agg AS (
     SELECT flare_id,
         AVG(lat) AS lat, AVG(lon) AS lon,
@@ -101,12 +101,12 @@ FROM agg
 WHERE in_permian(lat, lon);
 
 -- ---------------------------------------------------------------------------
--- flare_detections — per-site daily detection time series (2021+)
+-- vnf_detections — per-site daily detection time series (2021+)
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE TABLE permian.flare_detections AS
+CREATE OR REPLACE TABLE permian.vnf_detections AS
 SELECT v.flare_id, v.date, round(v.rh_mw, 2) AS rh_mw
 FROM raw.vnf v
-SEMI JOIN permian.flare_sites fs USING (flare_id)
+SEMI JOIN permian.vnf_sites fs USING (flare_id)
 WHERE v.detected AND v.date >= getvariable('start_date');
 
 -- ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ SELECT
     p.exception_reasons,
     (fl.filing_no IN (SELECT filing_no FROM raw.permits WHERE property_type = 'Gas Plant')
      OR COALESCE(fl.facility_type, '') ILIKE '%gas plant%') AS is_gas_plant
-FROM raw.flare_locations fl
+FROM raw.permit_locations fl
 JOIN rrc.permits p ON p.filing_no = fl.filing_no
 LEFT JOIN (
     SELECT filing_no, sum(TRY_CAST(requested_release_rate_mcf_day AS DOUBLE)) AS release_rate_mcf_day
@@ -272,8 +272,8 @@ FROM raw.s2_catalogue;
 -- ---------------------------------------------------------------------------
 ATTACH 'dist/gaslight.duckdb' AS dist;
 
-CREATE OR REPLACE TABLE dist.flare_sites       AS SELECT * FROM permian.flare_sites;
-CREATE OR REPLACE TABLE dist.flare_detections  AS SELECT * FROM permian.flare_detections;
+CREATE OR REPLACE TABLE dist.vnf_sites         AS SELECT * FROM permian.vnf_sites;
+CREATE OR REPLACE TABLE dist.vnf_detections    AS SELECT * FROM permian.vnf_detections;
 CREATE OR REPLACE TABLE dist.permits           AS SELECT * FROM permian.permits;
 CREATE OR REPLACE TABLE dist.permit_leases     AS SELECT * FROM permian.permit_leases;
 CREATE OR REPLACE TABLE dist.wells             AS SELECT * FROM permian.wells;

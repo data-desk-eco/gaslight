@@ -1,4 +1,4 @@
-# `flare_sites`
+# `vnf_sites`
 
 One row per VIIRS Nightfire flare site detected in the Permian during the
 analysis window — the satellite-observed flare locations and how active
@@ -34,7 +34,7 @@ whether the operator reported flaring (see `monthly_flaring`).
 ```sql
 -- most persistently-burning sites
 SELECT flare_id, lat, lon, detection_days, total_rh_mw
-FROM flare_sites
+FROM vnf_sites
 ORDER BY detection_days DESC
 LIMIT 25;
 ```

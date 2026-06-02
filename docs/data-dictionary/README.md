@@ -24,7 +24,7 @@ tables straight into pandas/R/QGIS) and start querying.
 > **Reported vs. observed flaring — read this first.** The flaring *volumes*
 > in this dataset (`monthly_flaring`, and the `flared_mcf` / `flaring_intensity_pct`
 > columns derived from them) are **self-reported by operators to the RRC**.
-> The satellite layers (`flare_sites`, `flare_detections`, `s2_detections`)
+> The satellite layers (`vnf_sites`, `vnf_detections`, `s2_detections`)
 > are **independent observations** of combustion from space. These two do not
 > always agree — a flare can burn brightly on satellite imagery in a month an
 > operator reports little or no flaring. That gap is the central finding of the
@@ -39,7 +39,7 @@ sit east of -103.064°W (the Texas–New Mexico border) so the dataset is
 Texas-only. The one exception is `operators`, an RRC-wide name lookup with no
 geography.
 
-**Time.** Time-series tables (`flare_detections`, `monthly_flaring`) and the
+**Time.** Time-series tables (`vnf_detections`, `monthly_flaring`) and the
 rollups derived from them cover **2021-01-01 onward**, matching the satellite
 analysis window. Longer RRC history exists upstream and the window is a single
 pipeline setting that can be widened on request.
@@ -73,19 +73,19 @@ SHOW TABLES;
 SELECT * FROM _dictionary WHERE table_name = 'wells';
 -- the brightest flare sites by total radiant heat
 SELECT flare_id, lat, lon, detection_days, total_rh_mw
-FROM flare_sites ORDER BY total_rh_mw DESC LIMIT 20;
+FROM vnf_sites ORDER BY total_rh_mw DESC LIMIT 20;
 ```
 
 Prefer another tool? Every table also reads directly into pandas
-(`duckdb.sql("SELECT * FROM flare_sites").df()`), R, or QGIS (via the
+(`duckdb.sql("SELECT * FROM vnf_sites").df()`), R, or QGIS (via the
 latitude/longitude columns).
 
 ## Tables
 
 | table | grain | rows | what it is |
 | --- | --- | --- | --- |
-| [`flare_sites`](flare_sites.md) | one row per VNF flare site (`flare_id`) | 1,297 | Satellite-observed flare locations and how active each has been. |
-| [`flare_detections`](flare_detections.md) | one row per flare site × detected night | 205,969 | Per-night detection time series behind each flare site. |
+| [`vnf_sites`](vnf_sites.md) | one row per VNF flare site (`flare_id`) | 1,297 | Satellite-observed flare locations and how active each has been. |
+| [`vnf_detections`](vnf_detections.md) | one row per flare site × detected night | 205,969 | Per-night detection time series behind each flare site. |
 | [`permits`](permits.md) | one row per SWR 32 permit filing (`filing_no`) | 9,815 | RRC SWR 32 flaring/venting exception permits, geolocated. |
 | [`permit_leases`](permit_leases.md) | one row per filing × underlying lease | 80,217 | The leases underlying each SWR 32 permit filing. |
 | [`wells`](wells.md) | one row per well (API) | 324,692 | Every Permian well, with operator and its lease's flaring metrics. |

@@ -22,10 +22,10 @@ function bboxSql(latCol, lonCol, lat, lon) {
              AND ${lonCol} BETWEEN ${lon} - (${BBOX_DELTA} / cos(radians(${lat}))) AND ${lon} + (${BBOX_DELTA} / cos(radians(${lat})))`;
 }
 
-// Tier 0: needed for first paint (37K flares)
+// Tier 0: needed for first paint (37K VNF sites)
 // Tier 1: visible layers loaded right after first paint (~750K total)
-// Tier 2: deferred until first query (detections 667K, gatherers 308K, production 288K, leases 44K)
-const TIER0 = ['flares'];
+// Tier 2: deferred until first query (vnf_detections 667K, gatherers 308K, production 288K, leases 44K)
+const TIER0 = ['vnf'];
 const TIER1 = ['permits', 'plumes', 'facilities', 'wells'];
 
 function _fmtSize(bytes) {
@@ -157,7 +157,7 @@ export async function queryFlares() {
             round(f.lat, 2) AS lat, round(f.lon, 2) AS lon,
             f.detection_days, f.total_rh_mw, f.avg_rh_mw,
             f.first_detected, f.last_detected
-        FROM 'flares.parquet' f
+        FROM 'vnf.parquet' f
     `);
     const data = rows(result);
     return {
@@ -174,10 +174,10 @@ export async function queryFlares() {
 }
 
 export async function queryDetections(flareId) {
-    await need('detections');
+    await need('vnf_detections');
     const result = await query(`
         SELECT date, rh_mw
-        FROM 'detections.parquet'
+        FROM 'vnf_detections.parquet'
         WHERE flare_id = ${Number(flareId)}
         ORDER BY date
     `);
@@ -395,7 +395,7 @@ function _layerBaseSql(layer, where) {
         case 'flares':
             return `SELECT flare_id, lat, lon, round(lat, 2) AS lat_r, round(lon, 2) AS lon_r,
                 detection_days, total_rh_mw, avg_rh_mw, first_detected, last_detected
-                FROM 'flares.parquet' ${w}`;
+                FROM 'vnf.parquet' ${w}`;
         case 'permits':
             return `SELECT latitude, longitude,
                 round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r,

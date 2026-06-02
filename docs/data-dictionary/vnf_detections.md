@@ -1,6 +1,6 @@
-# `flare_detections`
+# `vnf_detections`
 
-The per-night detection time series behind `flare_sites` — one row for every
+The per-night detection time series behind `vnf_sites` — one row for every
 night a given flare was observed burning. Powers timelines and lets you see
 when a flare started, stopped, or intensified.
 
@@ -13,7 +13,7 @@ when a flare started, stopped, or intensified.
 
 | column | type | description |
 | --- | --- | --- |
-| `flare_id` | INTEGER | VIIRS Nightfire site identifier; joins to flare_sites. |
+| `flare_id` | INTEGER | VIIRS Nightfire site identifier; joins to vnf_sites. |
 | `date` | DATE | Detection date (night of the satellite pass). |
 | `rh_mw` | DOUBLE | Radiant heat for that night, megawatts. |
 
@@ -26,8 +26,8 @@ cloudy nights may simply be missing). `rh_mw` is radiant heat in megawatts.
 
 ```sql
 SELECT date, rh_mw
-FROM flare_detections
-WHERE flare_id = (SELECT flare_id FROM flare_sites ORDER BY total_rh_mw DESC LIMIT 1)
+FROM vnf_detections
+WHERE flare_id = (SELECT flare_id FROM vnf_sites ORDER BY total_rh_mw DESC LIMIT 1)
 ORDER BY date;
 ```
 

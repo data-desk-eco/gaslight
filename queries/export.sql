@@ -13,7 +13,7 @@ LOAD spatial;
 -- the leases they belong to. Drives every flare-centric projection below.
 CREATE OR REPLACE TEMP TABLE app_flare_lease_match AS
 SELECT DISTINCT fs.flare_id, w.api, w.oil_gas_code, w.lease_district, w.lease_number
-FROM permian.flare_sites fs
+FROM permian.vnf_sites fs
 JOIN permian.wells w
     ON w.longitude BETWEEN fs.lon - 0.0034 AND fs.lon + 0.0034
     AND w.latitude  BETWEEN fs.lat - 0.0034 AND fs.lat + 0.0034;
@@ -21,20 +21,20 @@ JOIN permian.wells w
 CREATE OR REPLACE TEMP TABLE app_flare_leases AS
 SELECT DISTINCT lease_district, lease_number FROM app_flare_lease_match;
 
--- Flares
+-- VNF sites
 COPY (
     SELECT flare_id, lat, lon, detection_days,
         CAST(first_detected AS VARCHAR) AS first_detected,
         CAST(last_detected AS VARCHAR) AS last_detected,
         total_rh_mw, avg_rh_mw
-    FROM permian.flare_sites
-) TO 'web/data/flares.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+    FROM permian.vnf_sites
+) TO 'web/data/vnf.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- Detections (per-flare daily time series)
+-- VNF detections (per-site daily time series)
 COPY (
     SELECT flare_id, CAST(date AS VARCHAR) AS date, rh_mw
-    FROM permian.flare_detections
-) TO 'web/data/detections.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+    FROM permian.vnf_detections
+) TO 'web/data/vnf_detections.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- Permits (one row per filing, gas plants excluded from the map)
 COPY (

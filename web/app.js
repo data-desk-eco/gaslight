@@ -46,7 +46,7 @@ db.onLog(bootLog);
 db.onStatus(bootStatus);
 bootLog('gaslight / upstream flaring in the permian');
 bootLog('');
-bootLog('fetch  flares.parquet (prefetch)');
+bootLog('fetch  vnf.parquet (prefetch)');
 
 const _css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 const COLORS = {
@@ -158,8 +158,8 @@ map.on('load', async () => {
     bootLog('bindui event listeners');
     bindUI();
     restoreLayerHash();
-    bootLog('query  flares.parquet');
-    bootStatus('querying flare sites...');
+    bootLog('query  vnf.parquet');
+    bootStatus('querying VNF sites...');
     await refreshFlares();
     bootLog(`render ${flareFeatures.length.toLocaleString()} flare sites`);
     bootStatus('loading tier 1 data...');
@@ -1200,7 +1200,7 @@ function showFlareDetail(feature) {
     const p = feature.properties;
     updateHash({ vnf: p.flare_id });
 
-    openDetail(`Flare ${p.flare_id}`, p.lat, p.lon, [
+    openDetail(`VNF ${p.flare_id}`, p.lat, p.lon, [
         card.stats([
             { value: num(p.total_rh_mw), unit: 'total MW' },
             { value: num(p.detection_days), unit: 'detection days' },

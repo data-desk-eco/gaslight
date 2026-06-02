@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
+import subprocess
 import textwrap
 import zipfile
 from pathlib import Path
@@ -161,11 +162,9 @@ def render_readme(
            duckdb -c ".read bootstrap.sql" -c ".read queries/04_permits_fang.sql"
            ```
 
-           `bootstrap.sql` sets up the schema aliases so the queries find the
-           bundled parquets. A small number of claims are marked **requires
-           full database** — their queries reference tables too big to
-           bundle (VIIRS detections, full production history); only routes 1
-           and 2 apply there.
+           `bootstrap.sql` sets up the schema aliases so the queries find
+           the bundled parquets. Every claim in this package can be re-run
+           this way — nothing requires the full upstream database.
 
         The article's figures are a snapshot taken at writing time. The
         database keeps being updated with new permit filings, plume
@@ -173,6 +172,101 @@ def render_readme(
         *larger* numbers than the article cites. The **shape** of the
         comparison (FANG vs Apache vs Pioneer) should hold.
     """))
+    lines.append("")
+    lines.append("## Pipeline")
+    lines.append("")
+    lines.append(textwrap.dedent("""\
+        The diagram below traces where every figure in the article comes from.
+        Grey boxes are external sources we don't control; blue boxes are raw
+        files landed verbatim from those sources; green boxes are normalised
+        tables built by SQL in the `gaslight` repo (`queries/load.sql`,
+        `queries/rrc.sql`); yellow boxes are the files bundled in this
+        package. Each transformation is a SQL view or COPY statement — no
+        hidden Python munging, no ML, no imputation.
+    """).rstrip())
+    lines.append("")
+    lines.append("```mermaid")
+    lines.append(textwrap.dedent("""\
+        flowchart TD
+            classDef src fill:#e5e5e5,stroke:#888,color:#222;
+            classDef raw fill:#cfe2f3,stroke:#3d85c6,color:#0b3d66;
+            classDef norm fill:#d9ead3,stroke:#6aa84f,color:#274e13;
+            classDef bundle fill:#fff2cc,stroke:#bf9000,color:#5b4500;
+
+            RRC_SWR32[RRC SWR 32 permits<br/>web database]:::src
+            RRC_MFT[RRC MFT<br/>EBCDIC well + operator files]:::src
+            RRC_PDQ[RRC PDQ<br/>monthly gas disposition]:::src
+            EOG_VNF[EOG VIIRS Nightfire<br/>satellite flare detections]:::src
+            CM[Carbon Mapper API<br/>methane plumes]:::src
+            IMEO[UNEP IMEO<br/>methane plumes]:::src
+
+            PERMIT_HTML[raw/permit_details.csv<br/>+ permit_properties.csv<br/>+ permit_locations.csv]:::raw
+            WELLS_CSV[raw/wells.csv<br/>raw/operators.csv<br/>raw/gatherers.csv]:::raw
+            PROD_CSV[raw/lease_production.csv]:::raw
+            VNF_CSV[raw/vnf.csv]:::raw
+            PLUMES_CSV[raw/plumes.csv<br/>cm + imeo merged]:::raw
+
+            RRC_PERMITS[(rrc.permits<br/>one row per permit,<br/>dates parsed, status + reasons)]:::norm
+            RRC_PROD[(rrc.production<br/>monthly flared/produced MCF<br/>per lease, operator attributed)]:::norm
+            RAW_WELLS[(raw.wells<br/>joined to operators<br/>via operator_no)]:::norm
+            RAW_PLUMES[(raw.plumes<br/>unified schema<br/>cm + imeo)]:::norm
+            RAW_VNF[(raw.vnf<br/>flare site profiles)]:::norm
+
+            PKG_PERMITS[/data/permits.parquet/]:::bundle
+            PKG_PROD[/data/production_flaring.parquet/]:::bundle
+            PKG_WELLS[/data/raw_wells.parquet/]:::bundle
+            PKG_PLUMES_F[/data/plumes_fang.parquet/]:::bundle
+            PKG_PLUMES_A[/data/raw_plumes_all.parquet/]:::bundle
+            PKG_VNF[/data/raw_vnf.parquet/]:::bundle
+            PKG_FL[/data/raw_permit_locations.parquet/]:::bundle
+
+            RRC_SWR32 -- scrape_permits.py<br/>scrape_permit_details.py --> PERMIT_HTML
+            RRC_MFT -- download_rrc.py<br/>parse_rrc.py --> WELLS_CSV
+            RRC_PDQ -- pdq export --> PROD_CSV
+            EOG_VNF -- fetch_vnf.py --> VNF_CSV
+            CM -- fetch_plumes.py --> PLUMES_CSV
+            IMEO -- manual geojson --> PLUMES_CSV
+
+            PERMIT_HTML -- load.sql + rrc.sql<br/>merge filings + detail pages,<br/>parse dates --> RRC_PERMITS
+            PROD_CSV -- load.sql + rrc.sql<br/>sum disposition code 04 --> RRC_PROD
+            WELLS_CSV -- load.sql --> RAW_WELLS
+            PLUMES_CSV -- load.sql --> RAW_PLUMES
+            VNF_CSV -- load.sql --> RAW_VNF
+
+            RRC_PERMITS --> PKG_PERMITS
+            RRC_PROD --> PKG_PROD
+            RAW_WELLS --> PKG_WELLS
+            RAW_PLUMES -- 375m proximity filter<br/>to FANG/Endeavor wells --> PKG_PLUMES_F
+            RAW_PLUMES --> PKG_PLUMES_A
+            RAW_VNF --> PKG_VNF
+            PERMIT_HTML --> PKG_FL
+    """).rstrip())
+    lines.append("```")
+    lines.append("")
+    lines.append(textwrap.dedent("""\
+        **Rendering:** GitHub renders Mermaid diagrams inline in `.md` files,
+        so opening this README on github.com shows the chart directly. For a
+        standalone view, paste the block above into <https://mermaid.live>.
+
+        **Key design points worth knowing for fact-checking:**
+
+        - **Spatial matching uses a fixed 375m radius** (the VIIRS satellite
+          pixel half-width). A ±0.0034° lat/lon bounding box is applied first
+          as a cheap pre-filter, then exact distance is computed. Any claim
+          involving "within 375m" or "nearby" uses this.
+        - **Operator attribution is string-based.** We match operators by
+          exact `operator_name` or `operator_number` from RRC records. For
+          Diamondback we confirmed only `DIAMONDBACK E&P LLC` and
+          `ENDEAVOR ENERGY RESOURCES L.P.` appear as filers in permits or
+          production — no Viper, no Rattler, no other subsidiaries file
+          directly. Claims combining FANG + Endeavor sum these two strings.
+        - **No imputation.** If a permit has no effective date, it stays
+          null — we never guess. If a lease's monthly production is missing,
+          it's excluded from the denominator for that month.
+        - **Permian filter** (applied at export): lat 30°–33.5°N,
+          lon -104.5° to -100°W, plus a Texas-only rule (above 32°N must be
+          east of -103.064° to exclude New Mexico).
+    """).rstrip())
     lines.append("")
     lines.append("## Data files")
     lines.append("")
@@ -233,6 +327,69 @@ def render_readme(
     return "\n".join(lines)
 
 
+_MERMAID_BLOCK = re.compile(r"```mermaid\n(.*?)\n```", re.DOTALL)
+
+
+def render_pdf(readme_md: str, build_dir: Path) -> None:
+    """Render the README to PDF via pandoc + xelatex.
+
+    Pre-renders the Mermaid flowchart to PNG using mermaid-cli (npx), so the
+    PDF gets an embedded image instead of a code block the TeX engine can't
+    interpret. Falls back to skipping PDF if the toolchain is missing.
+    """
+    if not shutil.which("pandoc"):
+        print("  pandoc not found — skipping PDF render")
+        return
+
+    pdf_md = readme_md
+    match = _MERMAID_BLOCK.search(readme_md)
+    if match:
+        mmd_path = build_dir / "etl_diagram.mmd"
+        png_path = build_dir / "etl_diagram.png"
+        mmd_path.write_text(match.group(1) + "\n")
+        print("  rendering Mermaid diagram → PNG…", flush=True)
+        r = subprocess.run(
+            [
+                "npx", "-y", "@mermaid-js/mermaid-cli",
+                "-i", str(mmd_path), "-o", str(png_path),
+                "-b", "white", "-s", "2",
+            ],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0 or not png_path.exists():
+            print(f"    mermaid-cli failed; leaving code block in PDF:\n{r.stderr}")
+        else:
+            pdf_md = _MERMAID_BLOCK.sub(
+                f"![ETL pipeline](etl_diagram.png){{ width=100% }}", pdf_md, count=1
+            )
+
+    pdf_md_path = build_dir / "README_for_pdf.md"
+    pdf_md_path.write_text(pdf_md)
+    pdf_path = build_dir / "README.pdf"
+
+    print("  rendering PDF via pandoc…", flush=True)
+    r = subprocess.run(
+        [
+            "pandoc", pdf_md_path.name, "-o", pdf_path.name,
+            "--pdf-engine=xelatex",
+            "--toc", "--toc-depth=2",
+            "-V", "geometry:margin=2cm",
+            "-V", "colorlinks=true",
+            "-V", "linkcolor=blue",
+            "-V", "urlcolor=blue",
+            "-V", "mainfont=Helvetica",
+            "-V", "monofont=Menlo",
+            "--no-highlight",
+        ],
+        capture_output=True, text=True, cwd=build_dir,
+    )
+    if r.returncode != 0:
+        print(f"    pandoc failed:\n{r.stderr[-2000:]}")
+    else:
+        print(f"    → {pdf_path.name} ({pdf_path.stat().st_size / 1e6:.1f} MB)")
+    pdf_md_path.unlink(missing_ok=True)
+
+
 def build(manifest_path: Path, db_path: Path, out_zip: Path) -> None:
     manifest = yaml.safe_load(manifest_path.read_text())
     build_dir = out_zip.parent / (out_zip.stem + "_build")
@@ -288,6 +445,7 @@ def build(manifest_path: Path, db_path: Path, out_zip: Path) -> None:
     (build_dir / "bootstrap.sql").write_text(render_bootstrap(exports))
     readme = render_readme(manifest, claim_results, exports)
     (build_dir / "README.md").write_text(readme)
+    render_pdf(readme, build_dir)
 
     # --- Zip ---------------------------------------------------------------
     if out_zip.exists():

@@ -6,7 +6,7 @@ Flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite flare 
 
 - `scripts/scrape_permits.py` — SWR 32 permit metadata scraper
 - `scripts/scrape_permit_details.py` — downloads permit detail HTML pages
-- `scripts/parse_permit_details.py` — parses HTML to CSVs (permit_details, permit_properties, flare_locations)
+- `scripts/parse_permit_details.py` — parses HTML to CSVs (permit_details, permit_properties, permit_locations)
 - `scripts/download_rrc.py` — downloads EBCDIC files from RRC MFT (Playwright)
 - `scripts/parse_rrc.py` — parses EBCDIC to `wells.csv` + `operators.csv` + `gatherers.csv` (Permian districts 6E/7B/7C/08/8A)
 - `scripts/fetch_vnf.py` — fetches VNF profiles from EOG
