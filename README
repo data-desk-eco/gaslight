@@ -8,7 +8,7 @@ and how that compares with what operators report to regulators.
 
 Live map: http://research.datadesk.eco/gaslight/
 
-The data
+the data
 --------
 
 The dataset is a single, standalone DuckDB file, `dist/gaslight.duckdb` — one
@@ -25,7 +25,7 @@ the satellite layers are independent observations from space; the two do not
 always agree. The Sentinel-2 flare layer is detected by the sibling
 permian-flaring project — gaslight fetches and displays it (`make s2`).
 
-Building it
+building it
 -----------
 
     uv sync
