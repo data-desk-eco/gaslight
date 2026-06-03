@@ -294,13 +294,22 @@ function addInfraImage() {
     map.addImage('infra-triangle', { width: size, height: size, data: imgData.data }, { sdf: true });
 }
 
+// Shrink a data-driven size expression at low zoom, ramping to full size by z12.
+// MapLibre requires the zoom interpolation at top level, with the data expression
+// (scaled per stop) embedded inside each stop — hence the wrapper rather than a multiply.
+function zoomScale(sizeExpr, minScale = 0.45, z0 = 7, z1 = 12) {
+    return ['interpolate', ['linear'], ['zoom'],
+        z0, ['*', sizeExpr, minScale],
+        z1, sizeExpr];
+}
+
 function addLayers() {
     // Flare radius: scale on total_rh_mw (MW)
-    const flareRadius = [
+    const flareRadius = zoomScale([
         'interpolate', ['linear'],
         ['coalesce', ['get', 'total_rh_mw'], 0],
         0, 2, 10, 4, 50, 7, 200, 12, 1000, 20, 5000, 32
-    ];
+    ]);
 
     map.addLayer({
         id: 'texas-border', type: 'line', source: 'texas',
@@ -308,11 +317,11 @@ function addLayers() {
     });
 
     // Permit radius: sqrt-ish scale on max_release_rate_mcf_day (huge range, 3–680K)
-    const permitRadius = [
+    const permitRadius = zoomScale([
         'interpolate', ['linear'],
         ['coalesce', ['get', 'max_release_rate_mcf_day'], 0],
         0, 1.5, 100, 2, 1000, 3.5, 5000, 6, 25000, 10, 100000, 16
-    ];
+    ]);
 
     // Wells: fixed-size X markers, visible at z10+
     // Color by combined score: sqrt(intensity% × ln(1 + flared_mcf))
@@ -338,7 +347,7 @@ function addLayers() {
         layout: {
             visibility: 'none',
             'icon-image': 'well-x',
-            'icon-size': 0.4,
+            'icon-size': zoomScale(0.4),
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
         },
@@ -355,7 +364,7 @@ function addLayers() {
         layout: {
             visibility: 'none',
             'icon-image': 'infra-triangle',
-            'icon-size': 0.45,
+            'icon-size': zoomScale(0.45),
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
         },
@@ -461,9 +470,9 @@ function addLayers() {
         ['coalesce', ['get', 'max_b12'], 0],
         0.3, '#660800', 0.5, '#991100', 0.7, '#cc2200', 0.9, '#ff4422', 1.2, '#ff8844', 1.5, '#ffcc44'
     ];
-    const s2IconSize = ['interpolate', ['linear'],
+    const s2IconSize = zoomScale(['interpolate', ['linear'],
         ['coalesce', ['get', 'max_b12'], 0],
-        0.3, 0.35, 0.6, 0.55, 1.0, 0.8, 1.5, 1.1];
+        0.3, 0.35, 0.6, 0.55, 1.0, 0.8, 1.5, 1.1]);
     // Fill layer (semi-transparent)
     map.addLayer({
         id: 's2-points-fill',
@@ -499,7 +508,7 @@ function addLayers() {
 
 }
 
-const PLUME_RADIUS = ['interpolate', ['linear'], ['coalesce', ['get', 'emission_rate'], 100], 10, 3, 500, 8, 5000, 18];
+const PLUME_RADIUS = zoomScale(['interpolate', ['linear'], ['coalesce', ['get', 'emission_rate'], 100], 10, 3, 500, 8, 5000, 18]);
 
 // Generate 750m square polygons and top-left label points from flare data
 function flarePixelData(flareGeoJson) {
