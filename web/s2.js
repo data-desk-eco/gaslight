@@ -4,7 +4,7 @@
 // (db.queryS2Detections) when a detail card opens, to draw the per-date timeline.
 // gaslight runs no S2 detection of its own — this just displays.
 
-import * as db from './db.js?v=12';
+import * as db from './db.js?v=13';
 
 let _sites = null; // Map<h3, site>
 let _loaded = false;
@@ -25,6 +25,7 @@ export async function load() {
                 mean_max_b12: row.mean_max_b12,
                 n_dates: row.n_dates,
                 n_detections: row.n_detections,
+                persistence_pct: row.persistence_pct ?? null,
                 first_date: row.first_date,
                 last_date: row.last_date,
                 b12_b11_ratio: row.b12_b11_ratio ?? null,

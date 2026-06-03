@@ -1,5 +1,5 @@
-import * as db from './db.js?v=12';
-import * as s2 from './s2.js?v=2';
+import * as db from './db.js?v=13';
+import * as s2 from './s2.js?v=3';
 import * as drawer from './drawer.js?v=5';
 
 // Boot screen log
@@ -1441,7 +1441,9 @@ function showS2Detail(site) {
         badge.textContent = site.nearest_source ? `corroborated · ${site.nearest_source}` : 'corroborated';
     } else {
         badge.className = 'status-badge s2';
-        badge.textContent = `${site.n_detections} det`;
+        badge.textContent = site.persistence_pct != null
+            ? `${site.persistence_pct}% persistent`
+            : `${site.n_detections} det`;
     }
     badge.classList.remove('hidden');
     $('overlap-nav').classList.add('hidden');
