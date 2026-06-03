@@ -95,7 +95,7 @@ latitude/longitude columns).
 | [`plumes`](plumes.md) | one row per plume observation (`plume_id`) | 6,581 | Methane plume detections (Carbon Mapper + UNEP IMEO). |
 | [`facilities`](facilities.md) | one row per gas processing facility (`serial_number`) | 596 | RRC R-3 gas processing facilities (gas plants). |
 | [`operators`](operators.md) | one row per RRC operator number | 77,888 | RRC operator-number → name reference lookup. |
-| [`s2_detections`](s2_detections.md) | one row per H3 flare site | 5,000 | Sentinel-2 SWIR flare sites (top-scoring, from permian-flaring). |
+| [`s2_detections`](s2_detections.md) | one row per H3 flare site | 2,352 | Sentinel-2 SWIR flare sites (top-scoring, from permian-flaring). |
 
 ## Sources & attribution
 
