@@ -8,20 +8,19 @@
 -- no S2 detection of its own and, once this file is committed, rebuilds without
 -- permian-flaring present.
 --
--- We keep the top `score_limit` sites by total_score. The full in-basin
--- catalogue is ~60k sites (most "corroborated" simply by sitting near an RRC
--- well), far more than the product needs — so we ship the strongest ranked
--- subset. Each site carries its per-date observations as a `detections` JSON
--- array (date, max_b12, pixels), preserving the timeline.
+-- Straight pass-through: permian-flaring's export is ALREADY the curated product
+-- set (its sql/70 ships exactly the top 3,000 sites by total_score, basin-wide),
+-- so gaslight applies NO further filtering of its own — no score cut, no bbox, no
+-- Texas-only restriction. We ingest every site p-f publishes (incl. the NM
+-- Delaware corner) and only re-round the columns for a tidy committed file. Each
+-- site carries its per-date observations as a `detections` JSON array (date,
+-- max_b12, pixels), preserving the timeline.
 --
--- Caller sets two variables (see Makefile):
+-- Caller sets one variable (see Makefile):
 --   pf_catalogue — path to permian-flaring's s2_catalogue_detail.parquet
---   score_limit  — number of top-scoring sites to keep
 --
 -- Time-window caveat: permian-flaring's S2 window is 2025-01-01..2026-05-31, so
 -- this layer covers only 2025–2026 (the other gaslight layers are 2021+).
-
-SET VARIABLE nm_border_lon = -103.064;  -- TX-NM border longitude (above 32°N)
 
 COPY (
     SELECT
@@ -41,10 +40,5 @@ COPY (
         nearest_source,
         detections
     FROM read_parquet(getvariable('pf_catalogue'))
-    -- Permian bbox + Texas-only (exclude the NM corner), on the site coords.
-    WHERE lat BETWEEN 30.0 AND 33.5
-        AND lon BETWEEN -104.5 AND -100.0
-        AND (lat <= 32.0 OR lon >= getvariable('nm_border_lon'))
     ORDER BY total_score DESC
-    LIMIT getvariable('score_limit')
 ) TO 'data/s2_catalogue.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);

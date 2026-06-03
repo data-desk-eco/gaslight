@@ -56,16 +56,14 @@ data/vnf_profiles/.done:
 # (re)build PF_CATALOGUE, then `make s2 && make db` to bake it into the DB.
 
 PF_CATALOGUE := $(HOME)/Research/permian-flaring/data/s2_catalogue_detail.parquet
-# Number of top-scoring catalogue sites to keep, applied in s2.sql. The full
-# in-basin catalogue is ~60k sites — far more than the product needs.
-S2_LIMIT     := 5000
+# p-f's export is already the curated product set (top 3,000 by score, basin-wide),
+# so s2.sql is a pass-through — no score limit or geographic filter on this side.
 
 s2: data/s2_catalogue.parquet
 
 data/s2_catalogue.parquet: $(PF_CATALOGUE) queries/s2.sql
 	duckdb \
 		-c "SET VARIABLE pf_catalogue='$(PF_CATALOGUE)'" \
-		-c "SET VARIABLE score_limit=$(S2_LIMIT)" \
 		-c ".read queries/s2.sql"
 	@echo "S2 catalogue: $@ ($$(du -h $@ | cut -f1)) — run 'make db' to ingest"
 
