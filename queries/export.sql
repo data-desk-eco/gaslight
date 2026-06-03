@@ -108,23 +108,12 @@ COPY (
 -- can load the site layer at boot without dragging the (much larger) time
 -- series with it. The web map reads these columns by name (web/db.js
 -- queryS2Precomputed, web/s2.js).
---
--- persistence_pct: n_dates as a share of all distinct S2 acquisition dates over
--- the catalogue window. The denominator is the basin-wide union of detection
--- dates (≈ the days S2 had a clear, flare-bearing pass over the Permian) — a
--- whole-window measure of how much of the study period the site was flaring.
--- Computed here (not hardcoded) so it tracks the catalogue on every refresh.
 COPY (
     SELECT h3, lon, lat, n_detections, n_dates,
         CAST(first_date AS VARCHAR) AS first_date,
         CAST(last_date AS VARCHAR) AS last_date,
         max_b12, mean_max_b12, b12_b11_ratio, min_glint_score,
-        total_score, corroborated, nearest_source,
-        round(100.0 * n_dates / (
-            SELECT count(DISTINCT d.date)
-            FROM permian.s2_detections,
-                 UNNEST(CAST(detections AS STRUCT(date VARCHAR, max_b12 DOUBLE, pixels INT)[])) AS t(d)
-        ), 1) AS persistence_pct
+        total_score, corroborated, nearest_source
     FROM permian.s2_detections
 ) TO 'web/data/s2.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
