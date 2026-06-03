@@ -1,5 +1,5 @@
-import * as db from './db.js?v=11';
-import * as s2 from './s2.js?v=1';
+import * as db from './db.js?v=12';
+import * as s2 from './s2.js?v=2';
 import * as drawer from './drawer.js?v=5';
 
 // Boot screen log
@@ -1413,13 +1413,6 @@ function showS2Detail(site) {
     updateHash({ s2: site.id });
     activateSelection({ s2Id: site.id });
 
-    const dets = (site.detections || []).slice().sort((a, b) => b.date.localeCompare(a.date));
-    const eventListHtml = dets.map(d => `<div class="s2-event-item">
-            <span class="s2-event-dot" style="background:${b12Color(d.max_b12)}"></span>
-            <span class="s2-event-date">${formatDate(d.date)}</span>
-            <span class="s2-event-b12">B12 ${d.max_b12.toFixed(2)}</span>
-        </div>`).join('');
-
     const span = site.n_dates === 1
         ? `${site.n_dates} date · ${site.n_detections} detection${site.n_detections !== 1 ? 's' : ''}`
         : `${site.n_dates} dates · ${site.n_detections} detections`;
@@ -1440,7 +1433,7 @@ function showS2Detail(site) {
             ['Corroboration', site.corroborated ? (site.nearest_source || 'yes') : 'none'],
         ),
         card.section('s2-permit-section'),
-        `<div id="s2-event-list" class="s2-event-list">${eventListHtml}</div>`,
+        `<div id="s2-event-list" class="s2-event-list"></div>`,
     ]);
     const badge = $('detail-badge');
     if (site.corroborated) {
@@ -1453,7 +1446,22 @@ function showS2Detail(site) {
     badge.classList.remove('hidden');
     $('overlap-nav').classList.add('hidden');
 
-    if (site.detections?.length) renderS2Chart(site.detections);
+    // Per-date detections are fetched lazily by h3 (split out of the site
+    // parquet to keep the boot payload small) — fill the event list + chart
+    // once they arrive.
+    db.queryS2Detections(site.id).then(dets => {
+        if (!dets.length) return;
+        const el = $('s2-event-list');
+        if (el) {
+            const sorted = dets.slice().sort((a, b) => b.date.localeCompare(a.date));
+            el.innerHTML = sorted.map(d => `<div class="s2-event-item">
+            <span class="s2-event-dot" style="background:${b12Color(d.max_b12)}"></span>
+            <span class="s2-event-date">${formatDate(d.date)}</span>
+            <span class="s2-event-b12">B12 ${d.max_b12.toFixed(2)}</span>
+        </div>`).join('');
+        }
+        renderS2Chart(dets);
+    }).catch(() => {});
 
     Promise.all([
         db.queryNearbyFacilities(site.lat, site.lon),

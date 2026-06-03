@@ -105,14 +105,28 @@ export async function loadS2Precomputed() {
     await _loadParquet('s2');
 }
 
-// One row per H3 site, ordered by score. `detections` is a JSON string array of
-// per-date observations ({date, max_b12, pixels}) — parsed client-side.
+// One row per H3 site, ordered by score. Site-level metadata only — the per-date
+// detections live in s2_detections.parquet, fetched lazily per site on card open.
 export async function queryS2Precomputed() {
     const result = await query(`
         SELECT h3, lon, lat, n_detections, n_dates, first_date, last_date,
                max_b12, mean_max_b12, b12_b11_ratio, min_glint_score,
-               total_score, corroborated, nearest_source, detections
+               total_score, corroborated, nearest_source
         FROM 's2.parquet' ORDER BY total_score DESC
+    `);
+    return rows(result);
+}
+
+// Per-date detections for one S2 site (date, max_b12), loaded lazily and queried
+// by h3 — mirrors queryDetections for VNF. Drives the event list + timeline chart.
+export async function queryS2Detections(h3) {
+    await need('s2_detections');
+    const id = String(h3).replace(/'/g, "''");
+    const result = await query(`
+        SELECT date, max_b12
+        FROM 's2_detections.parquet'
+        WHERE h3 = '${id}'
+        ORDER BY date
     `);
     return rows(result);
 }

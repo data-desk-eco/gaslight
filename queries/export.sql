@@ -103,17 +103,31 @@ COPY (
     ORDER BY mf.lease_district, mf.lease_number, mf.year, mf.month
 ) TO 'web/data/production.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- Sentinel-2 flare sites (whole top-scoring catalogue; site-level with the
--- per-date `detections` JSON kept for the timeline). The web map reads these
--- columns by name (web/db.js queryS2Precomputed, web/s2.js).
+-- Sentinel-2 flare sites (whole top-scoring catalogue; site-level only). The
+-- per-date `detections` are split into s2_detections.parquet below so the map
+-- can load the site layer at boot without dragging the (much larger) time
+-- series with it. The web map reads these columns by name (web/db.js
+-- queryS2Precomputed, web/s2.js).
 COPY (
     SELECT h3, lon, lat, n_detections, n_dates,
         CAST(first_date AS VARCHAR) AS first_date,
         CAST(last_date AS VARCHAR) AS last_date,
         max_b12, mean_max_b12, b12_b11_ratio, min_glint_score,
-        total_score, corroborated, nearest_source, detections
+        total_score, corroborated, nearest_source
     FROM permian.s2_detections
 ) TO 'web/data/s2.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
+-- Sentinel-2 per-date detections (one row per site-date). Flattened out of the
+-- site `detections` JSON array — columnar ZSTD on dates/floats is far smaller
+-- than the embedded JSON, and the web app loads this lazily and queries it by
+-- h3 only when an S2 card opens (mirrors vnf_detections). `pixels` is dropped:
+-- the card renders only date + max_b12.
+COPY (
+    SELECT h3, d.date::VARCHAR AS date, d.max_b12
+    FROM permian.s2_detections,
+         UNNEST(CAST(detections AS STRUCT(date VARCHAR, max_b12 DOUBLE, pixels INT)[])) AS t(d)
+    ORDER BY h3, date
+) TO 'web/data/s2_detections.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- Gatherers/purchasers/nominators (flare-linked leases only)
 COPY (

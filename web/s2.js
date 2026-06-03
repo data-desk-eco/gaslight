@@ -1,10 +1,10 @@
 // s2.js — permian-flaring's score-capped S2 flare catalogue (display-only).
-// One row per H3 site, loaded as a parquet via DuckDB. Each site carries a
-// `detections` array of per-date observations ({date, max_b12, pixels}) parsed
-// from the embedded JSON column, used to draw the per-date timeline in the
-// detail card. gaslight runs no S2 detection of its own — this just displays.
+// One row per H3 site, loaded as a parquet via DuckDB (site-level metadata only).
+// Per-date detections live in s2_detections.parquet and are fetched lazily by h3
+// (db.queryS2Detections) when a detail card opens, to draw the per-date timeline.
+// gaslight runs no S2 detection of its own — this just displays.
 
-import * as db from './db.js?v=11';
+import * as db from './db.js?v=12';
 
 let _sites = null; // Map<h3, site>
 let _loaded = false;
@@ -17,10 +17,6 @@ export async function load() {
 
         _sites = new Map();
         for (const row of all) {
-            let detections = [];
-            try {
-                detections = row.detections ? JSON.parse(row.detections) : [];
-            } catch { /* leave empty on malformed JSON */ }
             _sites.set(row.h3, {
                 id: row.h3,
                 lon: row.lon,
@@ -36,7 +32,6 @@ export async function load() {
                 total_score: row.total_score ?? null,
                 corroborated: row.corroborated ?? null,
                 nearest_source: row.nearest_source ?? null,
-                detections,
             });
         }
 
