@@ -12,9 +12,9 @@ function bootLog(msg) {
     if (!_bootLog) return;
     const el = document.createElement('span');
     const ts = ((performance.now() - _t0) / 1000).toFixed(2).padStart(6);
-    // Justify first word to 7 chars so subsequent text aligns
+    // Justify first word so subsequent text aligns (widest verb is "instantiate")
     const i = msg.indexOf(' ');
-    const fmt = i > 0 ? (msg.slice(0, i) + ' ').padEnd(8) + msg.slice(i + 1).trimStart() : msg;
+    const fmt = i > 0 ? (msg.slice(0, i) + ' ').padEnd(12) + msg.slice(i + 1).trimStart() : msg;
     el.textContent = `[${ts}s] ${fmt}`;
     _bootLog.appendChild(el);
     el.scrollIntoView({ block: 'end' });
@@ -29,7 +29,7 @@ function bootStatus(msg) {
     const update = () => {
         const ts = ((performance.now() - _t0) / 1000).toFixed(2).padStart(6);
         const j = msg.indexOf(' ');
-        const sfmt = j > 0 ? (msg.slice(0, j) + ' ').padEnd(8) + msg.slice(j + 1).trimStart() : msg;
+        const sfmt = j > 0 ? (msg.slice(0, j) + ' ').padEnd(12) + msg.slice(j + 1).trimStart() : msg;
         _bootStatus.textContent = `[${ts}s] ${sfmt}`;
     };
     update();
