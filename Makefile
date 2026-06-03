@@ -1,7 +1,7 @@
 WORKERS ?= 32
 export WORKERS
 
-.PHONY: all db refresh publish export vendor serve permits permit-details wells vnf plumes r3 s2 clean help
+.PHONY: all db refresh publish export release vendor serve permits permit-details wells vnf plumes r3 s2 clean help
 
 all: db
 
@@ -99,6 +99,20 @@ dist/gaslight.duckdb: data/data.duckdb queries/publish.sql docs/data-dictionary/
 	uv run scripts/build_dictionary.py
 	@echo "Shareable DB ready: $@ ($$(du -h $@ | cut -f1))"
 
+# --- release ---
+
+# Upload the locally-built shareable DB as a GitHub release asset.
+# CI can't build it (the raw scraped source files are gitignored), so this
+# publishes the DB from your machine. Re-running updates the asset in place.
+RELEASE_TAG ?= db-latest
+release: dist/gaslight.duckdb
+	gh release view $(RELEASE_TAG) >/dev/null 2>&1 || \
+		gh release create $(RELEASE_TAG) --title "Shareable database" \
+			--notes "Standalone DuckDB database (main schema, no internals). Rebuilt from \`make publish\`." \
+			--latest=false
+	gh release upload $(RELEASE_TAG) dist/gaslight.duckdb --clobber
+	@echo "Released: $$(gh release view $(RELEASE_TAG) --json url -q .url)"
+
 # --- web app ---
 
 export: dist/gaslight.duckdb queries/export.sql
@@ -122,6 +136,7 @@ help:
 	@echo "  make refresh         Rebuild database from scratch"
 	@echo "  make publish         Build shareable dist/gaslight.duckdb + data dictionary"
 	@echo "  make export          Re-export parquets for web app"
+	@echo "  make release         Upload dist/gaslight.duckdb to a GitHub release"
 	@echo "  make vendor          Download vendored JS dependencies"
 	@echo "  make serve           Dev server on :8080"
 	@echo ""
