@@ -1,5 +1,5 @@
-import * as db from './db.js?v=10';
-import * as s2 from './s2.js';
+import * as db from './db.js?v=11';
+import * as s2 from './s2.js?v=1';
 import * as drawer from './drawer.js?v=5';
 
 // Boot screen log
@@ -635,11 +635,10 @@ function updateMapCentre() {
 }
 
 function updateStats() {
-    const features = map.queryRenderedFeatures({ layers: ['flares-layer'] });
-    const sites = features.length;
-    const totalMw = features.reduce((s, f) => s + (Number(f.properties.total_rh_mw) || 0), 0);
+    const sites = map.queryRenderedFeatures({ layers: ['flares-layer'] }).length;
+    const s2Sites = map.queryRenderedFeatures({ layers: ['s2-points'] }).length;
     $('stat-sites').textContent = sites.toLocaleString();
-    $('stat-mw').textContent = sites > 0 ? Math.round(totalMw).toLocaleString() : '--';
+    $('stat-s2').textContent = s2Sites.toLocaleString();
 }
 
 const LAYER_MAP = {
