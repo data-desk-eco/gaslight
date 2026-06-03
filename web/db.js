@@ -133,16 +133,27 @@ function rows(result) {
     const n = result.numRows;
     if (n === 0) return [];
     const fields = result.schema.fields;
-    // Column-based extraction — reads each column array once instead of per-row proxy access
+    // Column-based extraction — reads each column array once instead of per-row proxy access.
+    // `col.toArray()` returns the raw (typed) value buffer and does NOT apply Arrow's null
+    // bitmap, so null slots in numeric columns surface as uninitialized garbage (e.g. 1e+236).
+    // That garbage poisons MapLibre's GeoJSON tile encoder ("Given varint doesn't fit into
+    // 10 bytes"), blanking whole tiles. Carry the Vector for nullable columns so we can emit
+    // a real null via isValid().
     const columns = fields.map(f => {
         const col = result.getChild(f.name);
         const arr = col.toArray();
-        return { name: f.name, arr, bigint: arr.length > 0 && typeof arr[0] === 'bigint' };
+        return {
+            name: f.name,
+            arr,
+            bigint: arr.length > 0 && typeof arr[0] === 'bigint',
+            nullable: col.nullCount > 0 ? col : null,
+        };
     });
     const out = new Array(n);
     for (let i = 0; i < n; i++) {
         const obj = {};
-        for (const { name, arr, bigint } of columns) {
+        for (const { name, arr, bigint, nullable } of columns) {
+            if (nullable && !nullable.isValid(i)) { obj[name] = null; continue; }
             const v = arr[i];
             obj[name] = bigint ? Number(v) : v;
         }

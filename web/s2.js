@@ -4,7 +4,7 @@
 // from the embedded JSON column, used to draw the per-date timeline in the
 // detail card. gaslight runs no S2 detection of its own — this just displays.
 
-import * as db from './db.js?v=10';
+import * as db from './db.js?v=11';
 
 let _sites = null; // Map<h3, site>
 let _loaded = false;
