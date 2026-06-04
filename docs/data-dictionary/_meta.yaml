@@ -477,6 +477,8 @@ tables:
       lon: Site longitude, decimal degrees WGS84 (detection centroid).
       n_detections: Number of Sentinel-2 acquisitions the site was detected on.
       n_dates: Number of distinct dates detected (<= n_detections).
+      n_clear_obs: Number of distinct dates Sentinel-2 got a cloud-free look at the site (the persistence denominator, from the SCL coverage pass).
+      persistence: Fraction of clear-sky looks the site was flaring (n_dates / n_clear_obs, 0-1); high = a steady flare, low = sporadic.
       first_date: First detection date.
       last_date: Most recent detection date.
       max_b12: Peak B12 (SWIR-2) reflectance across all detections.

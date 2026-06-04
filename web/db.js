@@ -109,7 +109,8 @@ export async function loadS2Precomputed() {
 // detections live in s2_detections.parquet, fetched lazily per site on card open.
 export async function queryS2Precomputed() {
     const result = await query(`
-        SELECT h3, lon, lat, n_detections, n_dates, first_date, last_date,
+        SELECT h3, lon, lat, n_detections, n_dates, n_clear_obs, persistence,
+               first_date, last_date,
                max_b12, mean_max_b12, b12_b11_ratio, min_glint_score,
                total_score, corroborated, nearest_source
         FROM 's2.parquet' ORDER BY total_score DESC

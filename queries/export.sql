@@ -109,7 +109,7 @@ COPY (
 -- series with it. The web map reads these columns by name (web/db.js
 -- queryS2Precomputed, web/s2.js).
 COPY (
-    SELECT h3, lon, lat, n_detections, n_dates,
+    SELECT h3, lon, lat, n_detections, n_dates, n_clear_obs, persistence,
         CAST(first_date AS VARCHAR) AS first_date,
         CAST(last_date AS VARCHAR) AS last_date,
         max_b12, mean_max_b12, b12_b11_ratio, min_glint_score,

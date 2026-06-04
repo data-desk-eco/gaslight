@@ -259,7 +259,7 @@ FROM raw.operators;
 CREATE OR REPLACE TABLE permian.s2_detections AS
 SELECT
     h3, lat, lon,
-    n_detections, n_dates,
+    n_detections, n_dates, n_clear_obs, persistence,
     first_date::DATE AS first_date,
     last_date::DATE AS last_date,
     max_b12, mean_max_b12, b12_b11_ratio, min_glint_score,

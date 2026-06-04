@@ -32,6 +32,8 @@ COPY (
         round(lat, 6) AS lat,
         n_detections,
         n_dates,
+        n_clear_obs,
+        round(persistence, 3) AS persistence,
         first_date::VARCHAR AS first_date,
         last_date::VARCHAR AS last_date,
         round(max_b12, 3) AS max_b12,

@@ -1,5 +1,5 @@
-import * as db from './db.js?v=12';
-import * as s2 from './s2.js?v=2';
+import * as db from './db.js?v=13';
+import * as s2 from './s2.js?v=3';
 import * as drawer from './drawer.js?v=5';
 
 // Boot screen log
@@ -1427,6 +1427,8 @@ function showS2Detail(site) {
             ['First detected', formatDate(site.first_date)],
             ['Last detected', formatDate(site.last_date)],
             ['Detections', span],
+            site.persistence != null && ['Clear-sky persistence',
+                `${Math.round(site.persistence * 100)}% (${site.n_dates}/${site.n_clear_obs} clear looks)`],
             site.b12_b11_ratio != null && ['Peak B12 / B11', site.b12_b11_ratio.toFixed(2)],
             site.min_glint_score != null && ['Min glint score', site.min_glint_score.toFixed(2)],
             site.total_score != null && ['Score', site.total_score.toFixed(2)],
@@ -1435,14 +1437,13 @@ function showS2Detail(site) {
         card.section('s2-permit-section'),
         `<div id="s2-event-list" class="s2-event-list"></div>`,
     ]);
+    // The badge always shows clear-sky persistence; corroboration is conveyed by
+    // the card's Corroboration field (and the site's own VNF/RRC/OSM/CM layers).
     const badge = $('detail-badge');
-    if (site.corroborated) {
-        badge.className = 'status-badge s2';
-        badge.textContent = site.nearest_source ? `corroborated · ${site.nearest_source}` : 'corroborated';
-    } else {
-        badge.className = 'status-badge s2';
-        badge.textContent = `${site.n_detections} det`;
-    }
+    badge.className = 'status-badge s2';
+    badge.textContent = site.persistence != null
+        ? `${Math.round(site.persistence * 100)}% persistent`
+        : `${site.n_detections} det`;
     badge.classList.remove('hidden');
     $('overlap-nav').classList.add('hidden');
 

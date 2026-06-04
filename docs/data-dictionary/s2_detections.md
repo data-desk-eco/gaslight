@@ -6,7 +6,7 @@ flares. One row per detected site (clustered to an H3 cell), with the
 site's per-date observations carried in the `detections` array.
 
 - **Grain:** one row per H3 flare site
-- **Rows:** 2,348
+- **Rows:** 2,345
 - **Source:** Sentinel-2 SWIR flare detection
 - **Scope:** The Texas clip of permian-flaring's published catalogue (its top 3,000
 sites by detection score, basin-wide; gaslight keeps only the Texas ones).
@@ -22,6 +22,8 @@ permian-flaring), unlike the other satellite layers which are 2021+.
 | `lon` | DOUBLE | Site longitude, decimal degrees WGS84 (detection centroid). |
 | `n_detections` | BIGINT | Number of Sentinel-2 acquisitions the site was detected on. |
 | `n_dates` | BIGINT | Number of distinct dates detected (<= n_detections). |
+| `n_clear_obs` | BIGINT | Number of distinct dates Sentinel-2 got a cloud-free look at the site (the persistence denominator, from the SCL coverage pass). |
+| `persistence` | DOUBLE | Fraction of clear-sky looks the site was flaring (n_dates / n_clear_obs, 0-1); high = a steady flare, low = sporadic. |
 | `first_date` | DATE | First detection date. |
 | `last_date` | DATE | Most recent detection date. |
 | `max_b12` | DOUBLE | Peak B12 (SWIR-2) reflectance across all detections. |
