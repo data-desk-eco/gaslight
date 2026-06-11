@@ -16,15 +16,24 @@ where sqrt(pow((w.latitude - v.lat) * 111320, 2)
          + pow((w.longitude - v.lon) * 111320 * cos(radians(v.lat)), 2)) <= 375
 group by all;
 
--- sites within 1km of an r-3 gas plant flare outside lease reporting; exclude
+-- sites within 1km of a gas plant flare outside lease reporting; exclude.
+-- the r-3 list alone misses most major permian plants (panther, jameson,
+-- sterling, dollarhide...), so union in the eia-757 survey locations
 create temp table plant_sites as
 select distinct v.flare_id
 from permian.vnf_sites v
-join permian.facilities f
+join (select latitude, longitude from permian.facilities
+      union all
+      select latitude, longitude from read_csv('data/eia_plants.csv')) f
   on f.latitude between v.lat - 0.01 and v.lat + 0.01
  and f.longitude between v.lon - 0.012 and v.lon + 0.012
 where sqrt(pow((f.latitude - v.lat) * 111320, 2)
          + pow((f.longitude - v.lon) * 111320 * cos(radians(v.lat)), 2)) <= 1000;
+
+-- plant-scale complexes confirmed by satellite imagery review but absent from
+-- both facility lists: 9120 (32.178 -102.267, plant ~300m s of site, midmar/
+-- fasken system) and 7657 (31.345 -101.798, benedum complex sprawl)
+insert into plant_sites values (9120), (7657);
 
 -- per site-month: gas produced and disposition-04 declared, summed over all
 -- leases in the pixel. universe is raw.lease_production (all producing

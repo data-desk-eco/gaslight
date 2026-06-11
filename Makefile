@@ -1,7 +1,7 @@
 WORKERS ?= 32
 export WORKERS
 
-.PHONY: all db refresh publish export release vendor serve permits permit-details wells vnf plumes r3 s2 clean help
+.PHONY: all db refresh publish export release vendor serve permits permit-details wells vnf plumes r3 eia s2 clean help
 
 all: db
 
@@ -12,6 +12,7 @@ wells: data/wells.csv data/operators.csv
 vnf: data/vnf_profiles/.done
 plumes: data/plumes_cm.csv data/plumes_imeo.csv
 r3: data/r3_facilities.csv
+eia: data/eia_plants.csv
 permit-details: data/permit_details.csv
 
 data/filings.csv:
@@ -26,6 +27,12 @@ data/permit_details.csv data/permit_properties.csv data/permit_locations.csv dat
 
 data/r3_facilities.csv:
 	uv run scripts/fetch_r3.py
+
+# eia-757 processing plant survey locations -- the r-3 list misses most major
+# permian plants, so the undeclared-flaring analysis excludes against both
+data/eia_plants.csv:
+	curl -s "https://services.arcgis.com/jDGuO8tYggdCCnUJ/arcgis/rest/services/Natural_Gas_Processing_Plants/FeatureServer/0/query?where=State%3D%27TX%27&outFields=Plant_Name,Operator,County,Cap_MMcfd,Latitude,Longitude&f=geojson&resultRecordCount=2000" \
+	| jq -r '["plant_name","operator","county","cap_mmcfd","latitude","longitude"], (.features[].properties | [.Plant_Name,.Operator,.County,.Cap_MMcfd,.Latitude,.Longitude]) | @csv' > $@
 
 data/plumes_cm.csv data/plumes_imeo.csv:
 	uv run scripts/fetch_plumes.py

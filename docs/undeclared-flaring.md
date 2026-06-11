@@ -13,8 +13,17 @@ reproduce with `duckdb -readonly data/data.duckdb < queries/undeclared.sql`.
 - for each of the 1,297 VNF flare sites, collect all leases with a well inside
   375m (the VIIRS half-pixel match radius used throughout gaslight), via
   `permian.wells` → (`oil_gas_code`, district, lease number).
-- exclude sites within 1km of an R-3 gas processing facility (63 sites) —
-  plant flaring is not reported through lease-level PDQ dispositions.
+- exclude sites within 1km of a gas processing plant — plant flaring is not
+  reported through lease-level PDQ dispositions. the exclusion list unions the
+  RRC R-3 facilities with the EIA-757 plant survey (`data/eia_plants.csv`,
+  `make eia`): the R-3 list alone misses most major permian plants (panther,
+  jameson, sterling, dollarhide...), which silently contaminated an earlier
+  version of this analysis with plant flares. two further plant-scale
+  complexes found by imagery review but absent from both lists (sites 9120,
+  7657) are excluded by hand in the query.
+- every headline case below was visually confirmed against satellite imagery
+  to sit on lease infrastructure (well pads, tank batteries), not midstream
+  plant — eyeball the imagery before believing a match.
 - for each site-month with VNF detections, sum *declared* flared volumes
   (`raw.gas_disposition`, disposition 04, gas + casinghead) and *produced*
   volumes (`raw.lease_production`) across every matched lease. note
@@ -32,82 +41,88 @@ reproduce with `duckdb -readonly data/data.duckdb < queries/undeclared.sql`.
 
 | status of leases in the pixel | site-months | sites | flare-nights | radiant heat (MW) |
 |---|---|---|---|---|
-| flaring declared (>0 MCF) | 8,228 | 651 | 66,766 | 67,217 |
-| **producing gas, zero flaring declared** | **3,410** | **435** | **28,270** | **27,594** |
-| filed PDQ, no production, zero declared | 2,111 | 178 | 19,161 | 21,811 |
-| no PDQ filing at all | 1,669 | 116 | 15,801 | 28,362 |
+| flaring declared (>0 MCF) | 8,014 | 637 | 64,568 | 57,039 |
+| **producing gas, zero flaring declared** | **3,034** | **416** | **22,632** | **15,787** |
+| filed PDQ, no production, zero declared | 1,909 | 169 | 16,035 | 12,551 |
+| no PDQ filing at all | 1,585 | 112 | 14,765 | 25,543 |
 
 the "producing, zero declared" row is the core finding: the satellite watched
-a flare burn for ≥3 nights (median far more) in 3,410 site-months where every
+a flare burn for ≥3 nights (median far more) in 3,034 site-months where every
 lease within the pixel reported gas production but not one MCF flared. counting
-all detection months (not just sustained ones) the undeclared bucket spans 599
-sites, 32,785 flare-nights and ~30,800 MW of radiant heat.
+all detection months (not just sustained ones) the undeclared bucket spans 578
+sites, 26,927 flare-nights and ~18,300 MW of radiant heat.
 
 scale: among site-months where flaring *was* declared, the median declared
-volume per MW of observed radiant heat is ~600 MCF (IQR 78–2,157). applied to
-the undeclared bucket that implies very roughly **~18 BCF of flared gas over
+volume per MW of observed radiant heat is ~730 MCF (IQR 163–2,299). applied to
+the undeclared bucket that implies very roughly **~11.5 BCF of flared gas over
 five years that never appears in RRC disposition records** — treat as an order
 of magnitude, not an estimate (the MCF/MW relationship is noisy and skewed).
 
 the "filed, no production" bucket is largely completion flowback — flares
 burning before first production is reported — a separate disclosure gap with a
 different excuse. the "no PDQ filing" bucket includes inactive/transferred
-leases and midstream equipment (compressor stations are not in the R-3 list).
+leases and midstream equipment (compressor stations are not in either plant
+list).
 
 ## cases worth a closer look
 
-**citation oil & gas — jameson reef unit (7C-000621), coke county**
-(site 8002, 32.0487 −100.6847). the single biggest undeclared signal in the
-basin: 51 months with sustained fire and zero declared, 909 flare-nights,
-3,743 MW. burned 179–247 nights every year 2021–2025; citation declared
-nothing at all until 2024, then 7,181 MCF — against production that fell from
-378 MMCF (2021) to 14 MMCF (2025). a flare that burns two nights in three
-while the lease reports zero flaring for three straight years is hard to
-read as anything but non-reporting. (no S2 corroboration — site may fall
-below the score-capped S2 catalogue, whose absence is not evidence of
-absence.)
+all five confirmed against imagery as lease infrastructure, all survive the
+750m wobble check.
 
-**scout energy management / union oil of california — near the TX-NM border,
-winkler county** (site 7948, 32.1498 −103.0563). the most persistent: 57
-undeclared months — *every* sustained month, 2021 through 2025; **nothing has
-ever been declared at this site**. 1,146 flare-nights while the matched leases
-produced 1.0–1.6 BCF/yr. S2 sees a fire 27m away burning in **97.6%** of clear
-observations in 2025–26. five years of continuous flaring, >6 BCF/yr-scale
-gas throughput, zero MCF declared.
+**pioneer natural resources — arnett (08-023557), glasscock county**
+(site 7831, 31.8327 −101.6854). the biggest undeclared signal left after the
+plant purge: 30 undeclared months, 385 flare-nights, 907 MW. the flare burned
+132–217 nights every year 2021–2025, yet the lease reported production of just
+0–3 MMCF/yr and a single 63 MCF declaration (2023). carbon mapper imaged
+methane plumes of 247–732 kg/hr nearby six times in 2024–25. either the flare
+burns gas that never makes the production report, or the production report is
+itself suspect. pioneer (now exxon) is also #1 in the single-operator rollup:
+86 undeclared months and 1,457 MW across 34 sites.
 
-**discovery operating — apache flats, upton county** (site 7372, 31.6417
-−102.1919). zero flaring ever declared, yet: VNF saw fire on 1,480 days since
-2021 (225–316 nights/yr); an S2 cluster sits 175–260m away with persistence up
-to **0.90**; carbon mapper methane plumes were imaged 205–260m away in 2021
-and 2025; and discovery itself filed five SWR 32 flaring permits at apache
-flats (457m away, release rates up to 8,150 MCF/day) — but those permits
-cover ~40 days total, against five years of observed burning. reported lease
-production is tiny (0.5–13 MMCF/yr), so either the flare burns gas that never
-makes the production report, or the reported production itself is suspect.
+**oxyrock operating — jones "a" (08-025586), glasscock county** (site 8396,
+31.8460 −101.7717). the most persistent: 42 undeclared months while production
+held steady (~150 MMCF/yr) and declarations totalled 877 MCF over five years.
+fire rose from 20 nights (2021) to 136 nights (2025); S2 sees it at 0.69
+persistence 98m away. carbon mapper has imaged methane plumes within 200m of
+this site repeatedly since 2019, at rates up to ~2,500 kg/hr — a flare and a
+chronic methane source, with essentially nothing on the books.
 
-**fasken oil and ranch — fee "BM" (08-042190), midland county** (site 9120,
-32.1781 −102.2669). episodic but ferocious: avg 20.4 MW per detection (vs
-~1–6 for the others). in 2023 the satellite logged 25 flare-nights and 626 MW
-while the lease produced 2.15 BCF and declared zero flared. declarations only
-begin in 2024 (14,230 MCF) — after three years of observed undeclared burns.
+**anadarko/oxy — loving county** (site 7201, 31.8957 −103.7001). **nothing has
+ever been declared at this site**: 44 undeclared months, 466 flare-nights,
+2021 through 2025, while the matched lease produced 277–1,041 MMCF/yr. the
+fire escalated sharply in 2024 (174 nights, 347 MW). plumes were imaged nearby
+in 2021 (158 kg/hr) and 2025 (439 kg/hr). anadarko also tops the frequency
+rollup — 211 undeclared months across 42 single-operator sites.
 
-**pioneer natural resources — benedum /spraberry/ unit (7C-005204), upton
-county** (site 7657, 31.3447 −101.7979). ~300 nights/yr of fire 2021–2023 with
-zero declared; token declarations (635/895 MCF/yr) begin only in 2024. S2
-corroborates at 0.82 persistence 195m away. pioneer (now exxon) is also the
-basin's #2 in aggregate undeclared signal across 38 single-operator sites.
+**xto — pyke & merrick units, martin county** (site 8625, 32.3727 −101.8379).
+the gap case: xto declared 2,063–4,330 MCF/yr in 2021–23, then in 2024 — the
+flare's biggest year on record, 107 nights and 561 MW — the leases declared
+zero. declarations resume in 2025 (31,181 MCF). carbon mapper plumes up to
+~3,400 kg/hr have been imaged around the pyke/merrick pads. burning more than
+ever in the one year the paperwork goes quiet is hard to read as an oversight.
 
-also notable: **trigeo energy** (site 7690, garden city — 41 undeclared
-months, never declared, S2 persistence 0.87 at 27m); **anadarko/oxy** (42
-single-operator sites, 211 undeclared months — high frequency, low intensity);
-**xto** site 8625 (pyke/merrick units, howard county) with 31 undeclared
-months *and* repeated carbon mapper plumes up to ~2,000 kg/hr nearby.
+**highpeak energy — o'daniel ranch / jasmine units, howard county** (site
+8567, 32.4542 −101.3008). the counter-example that sharpens the rest: highpeak
+*does* declare — up to 260,734 MCF in 2023, among the basin's biggest — yet
+still logs 25 sustained months with zero declared while the flare burned up to
+276 nights/yr. across its 3 sites: 70 undeclared months against only 19
+declared. reporting that switches on and off while the fire doesn't.
+
+also notable in the single-operator rollup: **diamondback** (44 sites, 171
+undeclared months), **blackbeard operating** (8 sites, 105 undeclared months),
+**trp operating** (6 sites, 82 undeclared months).
 
 ## caveats
 
 - proximity is not ownership (the project's own rule). 375m is a satellite
   pixel; for the named cases the 750m robustness check and single-operator
   pixels make misattribution unlikely, but a well list is not a deed.
+- the plant exclusion is only as good as the plant lists. R-3 is badly
+  incomplete; EIA-757 locations date to 2017, so plants built since are
+  invisible. compressor stations appear in neither. headline cases were
+  screened by imagery review, but the aggregate buckets surely retain some
+  midstream contamination — treat site-level claims as requiring the imagery
+  check, always.
 - PDQ reports can be amended; "zero declared" means zero in the current RRC
   extract.
 - VNF radiant heat → volume conversion is indicative only.
