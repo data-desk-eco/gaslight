@@ -32,8 +32,9 @@ where sqrt(pow((f.latitude - v.lat) * 111320, 2)
 
 -- plant-scale complexes confirmed by satellite imagery review but absent from
 -- both facility lists: 9120 (32.178 -102.267, plant ~300m s of site, midmar/
--- fasken system) and 7657 (31.345 -101.798, benedum complex sprawl)
-insert into plant_sites values (9120), (7657);
+-- fasken system), 7657 (31.345 -101.798, benedum complex sprawl), 7831
+-- (31.833 -101.685) and 8396 (31.846 -101.772), both glasscock co plants
+insert into plant_sites values (9120), (7657), (7831), (8396);
 
 -- per site-month: gas produced and disposition-04 declared, summed over all
 -- leases in the pixel. universe is raw.lease_production (all producing

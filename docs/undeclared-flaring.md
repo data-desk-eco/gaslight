@@ -18,9 +18,9 @@ reproduce with `duckdb -readonly data/data.duckdb < queries/undeclared.sql`.
   RRC R-3 facilities with the EIA-757 plant survey (`data/eia_plants.csv`,
   `make eia`): the R-3 list alone misses most major permian plants (panther,
   jameson, sterling, dollarhide...), which silently contaminated an earlier
-  version of this analysis with plant flares. two further plant-scale
+  version of this analysis with plant flares. four further plant-scale
   complexes found by imagery review but absent from both lists (sites 9120,
-  7657) are excluded by hand in the query.
+  7657, 7831, 8396) are excluded by hand in the query.
 - every headline case below was visually confirmed against satellite imagery
   to sit on lease infrastructure (well pads, tank batteries), not midstream
   plant — eyeball the imagery before believing a match.
@@ -41,20 +41,20 @@ reproduce with `duckdb -readonly data/data.duckdb < queries/undeclared.sql`.
 
 | status of leases in the pixel | site-months | sites | flare-nights | radiant heat (MW) |
 |---|---|---|---|---|
-| flaring declared (>0 MCF) | 8,014 | 637 | 64,568 | 57,039 |
-| **producing gas, zero flaring declared** | **3,034** | **416** | **22,632** | **15,787** |
-| filed PDQ, no production, zero declared | 1,909 | 169 | 16,035 | 12,551 |
+| flaring declared (>0 MCF) | 8,009 | 635 | 64,508 | 57,002 |
+| **producing gas, zero flaring declared** | **2,962** | **414** | **21,940** | **14,507** |
+| filed PDQ, no production, zero declared | 1,884 | 168 | 15,646 | 10,942 |
 | no PDQ filing at all | 1,585 | 112 | 14,765 | 25,543 |
 
 the "producing, zero declared" row is the core finding: the satellite watched
-a flare burn for ≥3 nights (median far more) in 3,034 site-months where every
+a flare burn for ≥3 nights (median far more) in 2,962 site-months where every
 lease within the pixel reported gas production but not one MCF flared. counting
-all detection months (not just sustained ones) the undeclared bucket spans 578
-sites, 26,927 flare-nights and ~18,300 MW of radiant heat.
+all detection months (not just sustained ones) the undeclared bucket spans 576
+sites, 26,219 flare-nights and ~17,000 MW of radiant heat.
 
 scale: among site-months where flaring *was* declared, the median declared
-volume per MW of observed radiant heat is ~730 MCF (IQR 163–2,299). applied to
-the undeclared bucket that implies very roughly **~11.5 BCF of flared gas over
+volume per MW of observed radiant heat is ~730 MCF (IQR 164–2,300). applied to
+the undeclared bucket that implies very roughly **~10.6 BCF of flared gas over
 five years that never appears in RRC disposition records** — treat as an order
 of magnitude, not an estimate (the MCF/MW relationship is noisy and skewed).
 
@@ -66,26 +66,10 @@ list).
 
 ## cases worth a closer look
 
-all five confirmed against imagery as lease infrastructure, all survive the
-750m wobble check.
-
-**pioneer natural resources — arnett (08-023557), glasscock county**
-(site 7831, 31.8327 −101.6854). the biggest undeclared signal left after the
-plant purge: 30 undeclared months, 385 flare-nights, 907 MW. the flare burned
-132–217 nights every year 2021–2025, yet the lease reported production of just
-0–3 MMCF/yr and a single 63 MCF declaration (2023). carbon mapper imaged
-methane plumes of 247–732 kg/hr nearby six times in 2024–25. either the flare
-burns gas that never makes the production report, or the production report is
-itself suspect. pioneer (now exxon) is also #1 in the single-operator rollup:
-86 undeclared months and 1,457 MW across 34 sites.
-
-**oxyrock operating — jones "a" (08-025586), glasscock county** (site 8396,
-31.8460 −101.7717). the most persistent: 42 undeclared months while production
-held steady (~150 MMCF/yr) and declarations totalled 877 MCF over five years.
-fire rose from 20 nights (2021) to 136 nights (2025); S2 sees it at 0.69
-persistence 98m away. carbon mapper has imaged methane plumes within 200m of
-this site repeatedly since 2019, at rates up to ~2,500 kg/hr — a flare and a
-chronic methane source, with essentially nothing on the books.
+all three confirmed against imagery as lease infrastructure, all survive the
+750m wobble check. (two further candidates from an earlier draft — pioneer's
+arnett and oxyrock's jones "a", both glasscock county — fell to the imagery
+check as plants and are now in the manual exclusion list.)
 
 **anadarko/oxy — loving county** (site 7201, 31.8957 −103.7001). **nothing has
 ever been declared at this site**: 44 undeclared months, 466 flare-nights,
@@ -108,9 +92,11 @@ still logs 25 sustained months with zero declared while the flare burned up to
 276 nights/yr. across its 3 sites: 70 undeclared months against only 19
 declared. reporting that switches on and off while the fire doesn't.
 
-also notable in the single-operator rollup: **diamondback** (44 sites, 171
+xto also now tops the single-operator rollup by radiant heat (10 sites, 84
+undeclared months, 1,264 MW). also notable: **diamondback** (44 sites, 171
 undeclared months), **blackbeard operating** (8 sites, 105 undeclared months),
-**trp operating** (6 sites, 82 undeclared months).
+**trp operating** (6 sites, 82 undeclared months), **pioneer** (33 sites, 56
+undeclared months).
 
 ## caveats
 
