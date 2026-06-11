@@ -56,8 +56,8 @@ data/vnf_profiles/.done:
 # (re)build PF_CATALOGUE, then `make s2 && make db` to bake it into the DB.
 
 PF_CATALOGUE := $(HOME)/Research/permian-flaring/data/s2_catalogue_detail.parquet
-# p-f's export is already the curated product set (top 3,000 by score, basin-wide),
-# so s2.sql is a pass-through — no score limit or geographic filter on this side.
+# p-f's export is already the curated product set (tier 0, the ~99%-real confirmed
+# set), so s2.sql is a pass-through — no score limit, only the TX clip on this side.
 
 s2: data/s2_catalogue.parquet
 

@@ -9,7 +9,8 @@
 -- permian-flaring present.
 --
 -- permian-flaring's export is ALREADY the curated product set (its sql/70 ships
--- exactly the top 3,000 sites by total_score, basin-wide), so gaslight applies NO
+-- tier 0: the confirmed set, ~99 % real on audit — two independent evidence
+-- lines per site, basin-wide), so gaslight applies NO
 -- quality filtering of its own — no score cut, no ranking. The ONE filter kept is
 -- geographic: gaslight is a Texas product (its RRC / permit / well layers are
 -- TX-only), so the NM Delaware corner is excluded. We otherwise ingest every site
