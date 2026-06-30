@@ -16,11 +16,15 @@ when a flare started, stopped, or intensified.
 | `flare_id` | INTEGER | VIIRS Nightfire site identifier; joins to vnf_sites. |
 | `date` | DATE | Detection date (night of the satellite pass). |
 | `rh_mw` | DOUBLE | Radiant heat for that night, megawatts. |
+| `flow_rate` | DOUBLE | EOG-estimated flaring flow rate for that night (VNF `Flow_Rate` field, as published). Null when the Nightfire fit did not converge. |
 
 ## Caveats
 
 Only nights with a detection are present (no zero rows for quiet nights, and
-cloudy nights may simply be missing). `rh_mw` is radiant heat in megawatts.
+cloudy nights may simply be missing). `rh_mw` is radiant heat in megawatts;
+`flow_rate` is the EOG-estimated flaring flow rate (VNF `Flow_Rate` field,
+as published), present only on the ~63% of detections with a converged
+Nightfire fit.
 
 ## Example
 

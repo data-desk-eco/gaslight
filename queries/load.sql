@@ -46,7 +46,8 @@ WITH profiles AS (
         Cloud_Mask::INTEGER AS cloud_mask,
         QF_Detect::INTEGER AS qf_detect,
         CASE WHEN RH < 999999 THEN RH::DOUBLE END AS rh,
-        CASE WHEN Temp_BB < 999999 THEN Temp_BB::DOUBLE END AS temp_bb
+        CASE WHEN Temp_BB < 999999 THEN Temp_BB::DOUBLE END AS temp_bb,
+        CASE WHEN Flow_Rate < 999999 THEN Flow_Rate::DOUBLE END AS flow_rate
     FROM read_csv('data/vnf_profiles/site_*.csv',
         header=true, auto_detect=true, filename=false)
     WHERE Sunlit = 0
@@ -57,6 +58,7 @@ SELECT flare_id,
     BOOL_OR(qf_detect > 0 AND qf_detect < 999999) AS detected,
     MAX(CASE WHEN qf_detect > 0 AND qf_detect < 999999 THEN rh END) AS rh_mw,
     MAX(CASE WHEN qf_detect > 0 AND qf_detect < 999999 THEN temp_bb END) AS temp_k,
+    MAX(CASE WHEN qf_detect > 0 AND qf_detect < 999999 THEN flow_rate END) AS flow_rate,
     COUNT(*) AS n_passes,
     ST_Point(AVG(lon), AVG(lat)) AS geom
 FROM profiles

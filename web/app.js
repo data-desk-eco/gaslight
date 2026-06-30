@@ -1208,10 +1208,12 @@ function showFlareDetail(feature) {
     const p = feature.properties;
     updateHash({ vnf: p.flare_id });
 
+    const flow = Number(p.avg_flow_rate) > 0 ? Number(p.avg_flow_rate) : 0;
     openDetail(`VNF ${p.flare_id}`, p.lat, p.lon, [
         card.stats([
             { value: num(p.total_rh_mw), unit: 'total MW' },
             { value: num(p.detection_days), unit: 'detection days' },
+            ...(flow > 0 ? [{ value: num(flow), unit: 'avg flow rate' }] : []),
         ]),
         card.section('vnf-operator-section'),
         card.section('vnf-lease-section'),

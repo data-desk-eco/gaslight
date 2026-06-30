@@ -181,7 +181,7 @@ export async function queryFlares() {
     const result = await query(`
         SELECT f.flare_id, f.lat AS _lat, f.lon AS _lon,
             round(f.lat, 2) AS lat, round(f.lon, 2) AS lon,
-            f.detection_days, f.total_rh_mw, f.avg_rh_mw,
+            f.detection_days, f.total_rh_mw, f.avg_rh_mw, f.avg_flow_rate,
             f.first_detected, f.last_detected
         FROM 'vnf.parquet' f
     `);
@@ -202,7 +202,7 @@ export async function queryFlares() {
 export async function queryDetections(flareId) {
     await need('vnf_detections');
     const result = await query(`
-        SELECT date, rh_mw
+        SELECT date, rh_mw, flow_rate
         FROM 'vnf_detections.parquet'
         WHERE flare_id = ${Number(flareId)}
         ORDER BY date

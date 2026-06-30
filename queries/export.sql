@@ -38,13 +38,13 @@ COPY (
     SELECT flare_id, lat, lon, detection_days,
         CAST(first_detected AS VARCHAR) AS first_detected,
         CAST(last_detected AS VARCHAR) AS last_detected,
-        total_rh_mw, avg_rh_mw
+        total_rh_mw, avg_rh_mw, avg_flow_rate
     FROM permian.vnf_sites
 ) TO 'web/data/vnf.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- VNF detections (per-site daily time series)
 COPY (
-    SELECT flare_id, CAST(date AS VARCHAR) AS date, rh_mw
+    SELECT flare_id, CAST(date AS VARCHAR) AS date, rh_mw, flow_rate
     FROM permian.vnf_detections
 ) TO 'web/data/vnf_detections.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 

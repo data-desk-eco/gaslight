@@ -21,6 +21,7 @@ each has been. The primary "where are the flares" layer.
 | `last_detected` | DATE | Most recent detected night. |
 | `total_rh_mw` | DOUBLE | Sum of per-night radiant heat across all detected nights, megawatts. |
 | `avg_rh_mw` | DOUBLE | Mean radiant heat over nights with a positive reading, megawatts. |
+| `avg_flow_rate` | DOUBLE | Mean EOG-estimated flaring flow rate (VNF `Flow_Rate` field, as published) over nights with a fitted reading. Null where no night had a converged Nightfire fit. |
 
 ## Caveats
 

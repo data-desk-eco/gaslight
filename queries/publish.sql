@@ -86,7 +86,8 @@ WITH agg AS (
         MIN(date) AS first_detected, MAX(date) AS last_detected,
         COUNT(*) AS detection_days,
         sum(rh_mw) AS total_rh_mw,
-        avg(rh_mw) FILTER (WHERE rh_mw > 0) AS avg_rh_mw
+        avg(rh_mw) FILTER (WHERE rh_mw > 0) AS avg_rh_mw,
+        avg(flow_rate) FILTER (WHERE flow_rate > 0) AS avg_flow_rate
     FROM raw.vnf
     WHERE detected AND date >= getvariable('start_date')
     GROUP BY flare_id
@@ -96,7 +97,8 @@ SELECT flare_id,
     detection_days,
     first_detected, last_detected,
     round(total_rh_mw, 1) AS total_rh_mw,
-    round(avg_rh_mw, 2) AS avg_rh_mw
+    round(avg_rh_mw, 2) AS avg_rh_mw,
+    round(avg_flow_rate, 4) AS avg_flow_rate
 FROM agg
 WHERE in_permian(lat, lon);
 
@@ -104,7 +106,7 @@ WHERE in_permian(lat, lon);
 -- vnf_detections — per-site daily detection time series (2021+)
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE TABLE permian.vnf_detections AS
-SELECT v.flare_id, v.date, round(v.rh_mw, 2) AS rh_mw
+SELECT v.flare_id, v.date, round(v.rh_mw, 2) AS rh_mw, round(v.flow_rate, 4) AS flow_rate
 FROM raw.vnf v
 SEMI JOIN permian.vnf_sites fs USING (flare_id)
 WHERE v.detected AND v.date >= getvariable('start_date');
