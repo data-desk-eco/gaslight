@@ -90,7 +90,7 @@ function openDetail(title, lat, lon, body) {
     panel.scrollTop = 0;
 }
 
-let layerState = { flares: true, s2: true, permits: true, plumes: false, wells: false, infra: false };
+let layerState = { flares: true, s2: true, permits: false, plumes: false, wells: false, infra: false };
 let minPersistence = 0;
 
 // persistence filter for flare layers: fraction of observed days/passes alight
@@ -177,7 +177,9 @@ map.on('load', async () => {
     addLayers();
     bootLog('bindui event listeners');
     bindUI();
-    restoreLayerHash();
+    // an explicit layer hash wins over the zoom default — just sync the mode flag
+    if (restoreLayerHash()) autoZoomedIn = map.getZoom() >= AUTO_ZOOM;
+    else applyZoomMode();
     bootLog('query  vnf.parquet');
     bootStatus('querying VNF sites...');
     await refreshFlares();
@@ -332,12 +334,8 @@ function zoomScale(sizeExpr, minScale = 0.45, z0 = 7, z1 = 12) {
 }
 
 function addLayers() {
-    // Flare radius: scale on total_rh_mw (MW)
-    const flareRadius = zoomScale([
-        'interpolate', ['linear'],
-        ['coalesce', ['get', 'total_rh_mw'], 0],
-        0, 2, 10, 4, 50, 7, 200, 12, 1000, 20, 5000, 32
-    ]);
+    // Flare radius: uniform, ~2x the width of the s2 squares
+    const flareRadius = zoomScale(12);
 
     map.addLayer({
         id: 'texas-border', type: 'line', source: 'texas',
@@ -405,6 +403,7 @@ function addLayers() {
 
     map.addLayer({
         id: 'permits-layer', type: 'circle', source: 'permits',
+        layout: { visibility: 'none' },
         paint: {
             'circle-radius': permitRadius,
             'circle-color': COLORS.permit,
@@ -423,6 +422,7 @@ function addLayers() {
     ]);
     map.addLayer({
         id: 'nmocd-layer', type: 'circle', source: 'nmocd',
+        layout: { visibility: 'none' },
         paint: {
             'circle-radius': nmocdRadius,
             'circle-color': COLORS.permit,
@@ -512,10 +512,12 @@ function addLayers() {
     ctx.clearRect(bw, bw, sz - 2 * bw, sz - 2 * bw);
     map.addImage('s2-square-stroke', { width: sz, height: sz, data: new Uint8Array(ctx.getImageData(0, 0, sz, sz).data) }, { sdf: true });
 
+    // Same palette as the VNF ramp, keyed on peak B12/B11 (spectral temperature proxy;
+    // <1.15 = likely solar glint, median ~1.8, p90 ~2.3)
     const s2ColorRamp = [
         'interpolate', ['linear'],
-        ['coalesce', ['get', 'max_b12'], 0],
-        0.3, '#660800', 0.5, '#991100', 0.7, '#cc2200', 0.9, '#ff4422', 1.2, '#ff8844', 1.5, '#ffcc44'
+        ['coalesce', ['get', 'b12_b11_ratio'], 0],
+        0.9, '#660800', 1.15, '#991100', 1.5, '#cc2200', 1.8, '#ff4422', 2.2, '#ff8844', 3, '#ffcc44', 4.5, '#ffeeaa'
     ];
     const s2IconSize = zoomScale(['interpolate', ['linear'],
         ['coalesce', ['get', 'max_b12'], 0],
@@ -683,6 +685,7 @@ function loadS2Sites() {
             properties: {
                 id: d.id, lon: d.lon, lat: d.lat,
                 max_b12: d.max_b12, mean_max_b12: d.mean_max_b12,
+                b12_b11_ratio: d.b12_b11_ratio,
                 n_detections: d.n_detections, n_dates: d.n_dates,
                 first_date: d.first_date, last_date: d.last_date,
                 persistence: d.persistence,
@@ -779,6 +782,7 @@ function restoreLayerHash() {
         if (row) group.appendChild(row);
     }
     syncLayerOrder();
+    return true;
 }
 
 function setLayerVisibility(layer, visible) {
@@ -793,6 +797,22 @@ function setLayerVisibility(layer, visible) {
         if (layer === 'wells') { loadWells(); loadWellsNm(); }
         if (layer === 'infra') loadInfra();
     }
+}
+
+// auto layer mode: flares-only at basin scale; everything on past ~half-way in.
+// crossing the threshold resets the non-flare layers; manual toggles still work
+// within each mode.
+const AUTO_ZOOM = 11, AUTO_LAYERS = ['permits', 'plumes', 'infra', 'wells'];
+let autoZoomedIn = false;
+function applyZoomMode() {
+    const zi = map.getZoom() >= AUTO_ZOOM;
+    if (zi === autoZoomedIn) return;
+    autoZoomedIn = zi;
+    for (const layer of AUTO_LAYERS) {
+        setLayerVisibility(layer, zi);
+        document.querySelector(`.toggle-row[data-layer="${layer}"] input`).checked = zi;
+    }
+    saveLayerHash();
 }
 
 const ALL_CLICK_LAYERS = [
@@ -810,7 +830,7 @@ const ALL_CLICK_LAYERS = [
 
 function bindUI() {
     // Build flare pixel squares lazily when user zooms in past z12
-    map.on('zoom', () => { if (map.getZoom() >= 12) ensureFlarePixels(); });
+    map.on('zoom', () => { if (map.getZoom() >= 12) ensureFlarePixels(); applyZoomMode(); });
 
     $('collapse-toggle').addEventListener('click', () => {
         $('left-panel').classList.toggle('collapsed');
