@@ -3,11 +3,11 @@ const _css = k => getComputedStyle(document.documentElement).getPropertyValue(k)
 const LAYERS = {
     flares:  { label: 'VNF',     color: () => _css('--color-flare'),  latCol: 'lat',       lonCol: 'lon',       idCol: 'flare_id' },
     s2:      { label: 'S2',      color: () => _css('--color-flare'),  latCol: 'lat',       lonCol: 'lon',       idCol: 'id' },
-    permits: { label: 'Permits', color: () => _css('--color-permit'), latCol: 'latitude',  lonCol: 'longitude',  idCol: null },
+    permits: { label: 'TX permits', color: () => _css('--color-permit'), latCol: 'latitude',  lonCol: 'longitude',  idCol: null },
     nmocd:   { label: 'NM notices', color: () => _css('--color-permit'), latCol: 'latitude', lonCol: 'longitude', idCol: null },
     plumes:  { label: 'Plumes',  color: () => _css('--color-plume'),  latCol: 'latitude',  lonCol: 'longitude',  idCol: 'plume_id' },
-    wells_tx: { label: 'Wells (TX)', color: () => _css('--color-well'), latCol: 'latitude', lonCol: 'longitude', idCol: 'api' },
-    wells_nm: { label: 'Wells (NM)', color: () => _css('--color-well'), latCol: 'latitude', lonCol: 'longitude', idCol: 'api' },
+    wells_tx: { label: 'TX wells', color: () => _css('--color-well'), latCol: 'latitude', lonCol: 'longitude', idCol: 'api' },
+    wells_nm: { label: 'NM wells', color: () => _css('--color-well'), latCol: 'latitude', lonCol: 'longitude', idCol: 'api' },
     infra:   { label: 'Infrastructure', color: () => _css('--color-infra'), latCol: 'latitude', lonCol: 'longitude', idCol: 'serial_number' },
 };
 

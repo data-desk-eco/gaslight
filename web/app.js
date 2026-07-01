@@ -331,25 +331,11 @@ function addLayers() {
         0, 1.5, 100, 2, 1000, 3.5, 5000, 6, 25000, 10, 100000, 16
     ]);
 
-    // Wells: fixed-size X markers, visible at z10+
-    // Color by combined score: sqrt(intensity% × ln(1 + flared_mcf))
-    // Weights both how wasteful (intensity) and how much gas (volume)
+    // Wells: fixed-size white X markers, visible at z10+. Both states render the
+    // same — flaring-intensity colouring added little once the layer was already
+    // restricted to wells within ~1km of a detected flare, and there's no PDQ
+    // flaring feed on the NM side to colour by anyway.
     addWellImage();
-    const wellScore = ['sqrt', ['*',
-        ['coalesce', ['get', 'flaring_intensity_pct'], 0],
-        ['ln', ['+', 1, ['coalesce', ['get', 'flared_mcf'], 0]]]
-    ]];
-    const wellColor = [
-        'interpolate', ['linear'], wellScore,
-        0, '#776655',
-        1, '#cc5522',
-        4, '#e06628',
-        8, '#ee7733',
-        12, '#ff8844',
-        16, '#ffaa55',
-        22, '#ffcc44',
-        30, '#ffeeaa'
-    ];
     map.addLayer({
         id: 'wells-tx-layer', type: 'symbol', source: 'wells_tx',
         layout: {
@@ -360,13 +346,11 @@ function addLayers() {
             'icon-ignore-placement': true,
         },
         paint: {
-            'icon-color': wellColor,
+            'icon-color': COLORS.well,
             'icon-opacity': 0.85,
         }
     });
 
-    // NM OCD wells — same X marker, but flat (no PDQ flaring metrics exist on
-    // the New Mexico side to drive the intensity ramp), a touch fainter.
     map.addLayer({
         id: 'wells-nm-layer', type: 'symbol', source: 'wells_nm',
         layout: {
@@ -378,7 +362,7 @@ function addLayers() {
         },
         paint: {
             'icon-color': COLORS.well,
-            'icon-opacity': 0.7,
+            'icon-opacity': 0.85,
         }
     });
 
@@ -1051,7 +1035,7 @@ const LAYER_DEFAULTS = {
     'nmocd-layer': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
     'plumes-layer': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
     'wells-tx-layer': { 'icon-opacity': 0.85 },
-    'wells-nm-layer': { 'icon-opacity': 0.7 },
+    'wells-nm-layer': { 'icon-opacity': 0.85 },
     'infra-layer': { 'icon-opacity': 0.85 },
     's2-points': { 'icon-opacity': 1 },
 };
