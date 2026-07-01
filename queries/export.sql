@@ -10,25 +10,15 @@
 LOAD spatial;
 
 -- Wells within the VIIRS pixel bbox (±0.0034° ≈ 375m) of any flare site, and
--- the leases they belong to. Drives the lease/production/gatherer projections
--- below — kept at the documented 375m match radius for attribution. (The wells
--- layer itself ships a wider ~1km net; see app_flare_wells.)
+-- the leases they belong to. Drives the wells/lease/production/gatherer
+-- projections below — the map's well layer ships the same one-pixel net used
+-- for attribution (the "flare detection area" box readers see).
 CREATE OR REPLACE TEMP TABLE app_flare_lease_match AS
 SELECT DISTINCT fs.flare_id, w.api, w.oil_gas_code, w.lease_district, w.lease_number
 FROM permian.vnf_sites fs
 JOIN permian.wells_tx w
     ON w.longitude BETWEEN fs.lon - 0.0034 AND fs.lon + 0.0034
     AND w.latitude  BETWEEN fs.lat - 0.0034 AND fs.lat + 0.0034;
-
--- Wells within ~1km of any flare site — the set shipped to the map's well
--- layer. Wider than the 375m attribution radius so readers can trace a flare
--- back to candidate source wells, not just same-pixel coincidences.
-CREATE OR REPLACE TEMP TABLE app_flare_wells AS
-SELECT DISTINCT w.api
-FROM permian.vnf_sites fs
-JOIN permian.wells_tx w
-    ON w.longitude BETWEEN fs.lon - 0.009 AND fs.lon + 0.009
-    AND w.latitude  BETWEEN fs.lat - 0.009 AND fs.lat + 0.009;
 
 CREATE OR REPLACE TEMP TABLE app_flare_leases AS
 SELECT DISTINCT lease_district, lease_number FROM app_flare_lease_match;
@@ -92,18 +82,18 @@ COPY (
     GROUP BY round(latitude, 5), round(longitude, 5)
 ) TO 'web/data/nmocd.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- Wells (those within ~1km of a flare site; see app_flare_wells)
+-- Wells (those within a VIIRS pixel of a flare site; see app_flare_lease_match)
 COPY (
     SELECT w.api, w.oil_gas_code, w.lease_district, w.lease_number, w.well_number,
         w.operator_name, w.latitude, w.longitude,
         w.flared_mcf, w.produced_mcf, w.flaring_intensity_pct, w.lease_name
     FROM permian.wells_tx w
-    SEMI JOIN app_flare_wells m USING (api)
+    SEMI JOIN app_flare_lease_match m USING (api)
 ) TO 'web/data/wells_tx.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
--- NM OCD wells within ~1km of any flare site (same net as the TX well layer).
--- No PDQ flaring metrics exist on the NM side, so these ship header attributes
--- only; the full NM well set lives in dist.wells_nm for the shareable DB.
+-- NM OCD wells within a VIIRS pixel of any flare site (same net as the TX well
+-- layer). No PDQ flaring metrics exist on the NM side, so these ship header
+-- attributes only; the full NM well set lives in dist.wells_nm for the shareable DB.
 COPY (
     SELECT DISTINCT w.api, w.well_name, w.well_number, w.well_type, w.status,
         w.operator, w.district, w.section, w.township, w.range, w.footages,
@@ -113,8 +103,8 @@ COPY (
         w.latitude, w.longitude
     FROM permian.wells_nm w
     JOIN permian.vnf_sites fs
-        ON w.longitude BETWEEN fs.lon - 0.009 AND fs.lon + 0.009
-        AND w.latitude  BETWEEN fs.lat - 0.009 AND fs.lat + 0.009
+        ON w.longitude BETWEEN fs.lon - 0.0034 AND fs.lon + 0.0034
+        AND w.latitude  BETWEEN fs.lat - 0.0034 AND fs.lat + 0.0034
 ) TO 'web/data/wells_nm.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- Leases (flare ↔ lease matches via nearby wells)

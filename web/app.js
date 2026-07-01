@@ -333,8 +333,8 @@ function addLayers() {
 
     // Wells: fixed-size white X markers, visible at z10+. Both states render the
     // same — flaring-intensity colouring added little once the layer was already
-    // restricted to wells within ~1km of a detected flare, and there's no PDQ
-    // flaring feed on the NM side to colour by anyway.
+    // restricted to wells within a VIIRS pixel of a detected flare, and there's
+    // no PDQ flaring feed on the NM side to colour by anyway.
     addWellImage();
     map.addLayer({
         id: 'wells-tx-layer', type: 'symbol', source: 'wells_tx',
