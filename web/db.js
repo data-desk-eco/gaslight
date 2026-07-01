@@ -182,7 +182,9 @@ export async function queryFlares() {
         SELECT f.flare_id, f.lat AS _lat, f.lon AS _lon,
             round(f.lat, 2) AS lat, round(f.lon, 2) AS lon,
             f.detection_days, f.total_rh_mw, f.avg_rh_mw, f.avg_flow_rate,
-            f.first_detected, f.last_detected
+            f.first_detected, f.last_detected,
+            round(f.detection_days / greatest(1,
+                date_diff('day', f.first_detected::DATE, f.last_detected::DATE) + 1), 3) AS persistence
         FROM 'vnf.parquet' f
     `);
     const data = rows(result);

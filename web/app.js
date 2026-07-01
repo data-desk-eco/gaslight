@@ -91,36 +91,19 @@ function openDetail(title, lat, lon, body) {
 }
 
 let layerState = { flares: true, s2: true, permits: true, plumes: false, wells: false, infra: false };
-let activeYear = 'all';
+let minPersistence = 0;
 
-// date filter: iso-string range overlap against each layer's [first, last] props.
-// nulls coalesce to always-pass bounds so undated features stay visible.
-const DATE_PROPS = {
-    'flares-layer': ['first_detected', 'last_detected'],
-    'flare-pixels-fill': ['first_detected', 'last_detected'],
-    'flare-pixels-layer': ['first_detected', 'last_detected'],
-    'flare-pixels-label': ['first_detected', 'last_detected'],
-    's2-points': ['first_date', 'last_date'],
-    's2-points-fill': ['first_date', 'last_date'],
-    'plumes-layer': ['date', 'date'],
-    'permits-layer': ['earliest_effective', 'latest_expiration'],
-    'nmocd-layer': ['first_date', 'last_date'],
-};
+// persistence filter for flare layers: fraction of observed days/passes alight
+// (vnf: detection_days over first→last span; s2: detections over clear obs).
+// nulls coalesce to 1 so unscored sites stay visible.
+const PERSISTENCE_LAYERS = ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer',
+    'flare-pixels-label', 's2-points', 's2-points-fill'];
 
-function applyDateFilter() {
-    let start, end;
-    if (activeYear === '30d') {
-        start = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-        end = '9999';
-    } else if (activeYear !== 'all') {
-        start = activeYear;
-        end = `${activeYear}-12-31`;
-    }
-    for (const [id, [first, last]] of Object.entries(DATE_PROPS)) {
+function applyPersistenceFilter() {
+    for (const id of PERSISTENCE_LAYERS) {
         if (!map.getLayer(id)) continue;
-        map.setFilter(id, start ? ['all',
-            ['<=', ['coalesce', ['get', first], '0'], end],
-            ['>=', ['coalesce', ['get', last], '9999'], start]] : null);
+        map.setFilter(id, minPersistence > 0
+            ? ['>=', ['coalesce', ['get', 'persistence'], 1], minPersistence] : null);
     }
     map.once('idle', updateStats);
 }
@@ -702,6 +685,7 @@ function loadS2Sites() {
                 max_b12: d.max_b12, mean_max_b12: d.mean_max_b12,
                 n_detections: d.n_detections, n_dates: d.n_dates,
                 first_date: d.first_date, last_date: d.last_date,
+                persistence: d.persistence,
                 total_score: d.total_score, corroborated: d.corroborated,
             },
         })),
@@ -831,14 +815,11 @@ function bindUI() {
     $('collapse-toggle').addEventListener('click', () => {
         $('left-panel').classList.toggle('collapsed');
     });
-    for (const btn of document.querySelectorAll('[data-year]')) {
-        btn.addEventListener('click', () => {
-            document.querySelector('[data-year].active').classList.remove('active');
-            btn.classList.add('active');
-            activeYear = btn.dataset.year;
-            applyDateFilter();
-        });
-    }
+    $('persistence-range').addEventListener('input', e => {
+        minPersistence = parseFloat(e.target.value);
+        $('persistence-value').textContent = `${Math.round(minPersistence * 100)}%`;
+        applyPersistenceFilter();
+    });
     for (const row of document.querySelectorAll('.toggle-row[data-layer]')) {
         const layer = row.dataset.layer;
         const cb = row.querySelector('input');

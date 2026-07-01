@@ -39,16 +39,12 @@
             <div class="stats">
                 <div class="stat-row"><span class="stat-label">VNF flare sites</span><span class="stat-value" id="stat-sites">--</span></div>
                 <div class="stat-row"><span class="stat-label">S2 flare sites</span><span class="stat-value" id="stat-s2">--</span></div>
-                <div class="date-filter">
-                    <div class="filter-label">Date</div>
-                    <div class="filter-buttons">
-                        <button class="filter-btn active" data-year="all">All</button>
-                        <button class="filter-btn" data-year="2023">'23</button>
-                        <button class="filter-btn" data-year="2024">'24</button>
-                        <button class="filter-btn" data-year="2025">'25</button>
-                        <button class="filter-btn" data-year="2026">'26</button>
-                        <button class="filter-btn" data-year="30d">-30d</button>
+                <div class="persistence-slider">
+                    <div class="persistence-slider-header">
+                        <span class="stat-label">Minimum persistence</span>
+                        <span class="persistence-slider-value" id="persistence-value">0%</span>
                     </div>
+                    <input type="range" id="persistence-range" min="0" max="1" step="0.05" value="0">
                 </div>
             </div>
 

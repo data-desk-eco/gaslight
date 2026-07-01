@@ -146,19 +146,26 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
 .filter-group { margin-top: 10px; }
 .filter-group > .filter-label { font-size: var(--font-sm); font-weight: 500; color: var(--text-faint); margin-bottom: 6px; }
 
-/* --- date filter buttons (after firedamp) --- */
+/* --- flare persistence slider (after burnoff) --- */
 
-.date-filter { margin-top: 10px; }
-.date-filter .filter-label { font-size: var(--font-sm); font-weight: 500; color: var(--text-faint); margin-bottom: 6px; }
-.filter-buttons { display: flex; border: 1px solid var(--border-light); }
-.filter-btn {
-    flex: 1; padding: 3px 0; background: transparent; border: none;
-    color: var(--text-faint); font-family: inherit; font-size: var(--font-xs);
-    cursor: pointer; transition: all 0.15s;
+.persistence-slider { margin-top: 10px; }
+.persistence-slider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.persistence-slider-value { font-size: var(--font-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.persistence-slider input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 1px; background: var(--border-light);
+    outline: none; cursor: pointer;
 }
-.filter-btn + .filter-btn { border-left: 1px solid var(--border-light); }
-.filter-btn:hover { color: var(--text-muted); }
-.filter-btn.active { background: rgba(255, 255, 255, 0.1); color: var(--text-secondary); }
+.persistence-slider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 10px; height: 10px; background: var(--text-muted);
+    border: none; border-radius: 0; cursor: pointer; transition: background 0.15s;
+}
+.persistence-slider input[type="range"]::-webkit-slider-thumb:hover { background: var(--text-primary); }
+.persistence-slider input[type="range"]::-moz-range-thumb {
+    width: 10px; height: 10px; background: var(--text-muted);
+    border: none; border-radius: 0; cursor: pointer;
+}
 
 /* --- Right panel (detail cards) --- */
 
