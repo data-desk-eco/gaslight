@@ -39,6 +39,17 @@
             <div class="stats">
                 <div class="stat-row"><span class="stat-label">VNF flare sites</span><span class="stat-value" id="stat-sites">--</span></div>
                 <div class="stat-row"><span class="stat-label">S2 flare sites</span><span class="stat-value" id="stat-s2">--</span></div>
+                <div class="date-filter">
+                    <div class="filter-label">Date</div>
+                    <div class="filter-buttons">
+                        <button class="filter-btn active" data-year="all">All</button>
+                        <button class="filter-btn" data-year="2023">'23</button>
+                        <button class="filter-btn" data-year="2024">'24</button>
+                        <button class="filter-btn" data-year="2025">'25</button>
+                        <button class="filter-btn" data-year="2026">'26</button>
+                        <button class="filter-btn" data-year="30d">-30d</button>
+                    </div>
+                </div>
             </div>
 
             <div class="separator"></div>
@@ -55,7 +66,7 @@
                 </div>
                 <div class="toggle-row" data-layer="permits">
                     <span class="layer-icon" style="border-color: var(--color-permit)"></span>
-                    <span class="filter-label">Notifications</span>
+                    <span class="filter-label">Regulatory filings</span>
                     <input type="checkbox" checked>
                 </div>
                 <div class="toggle-row" data-layer="plumes">

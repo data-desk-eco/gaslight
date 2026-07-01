@@ -146,6 +146,20 @@ html, body { width: 100%; height: 100%; font-family: 'Inter', -apple-system, Bli
 .filter-group { margin-top: 10px; }
 .filter-group > .filter-label { font-size: var(--font-sm); font-weight: 500; color: var(--text-faint); margin-bottom: 6px; }
 
+/* --- date filter buttons (after firedamp) --- */
+
+.date-filter { margin-top: 10px; }
+.date-filter .filter-label { font-size: var(--font-sm); font-weight: 500; color: var(--text-faint); margin-bottom: 6px; }
+.filter-buttons { display: flex; border: 1px solid var(--border-light); }
+.filter-btn {
+    flex: 1; padding: 3px 0; background: transparent; border: none;
+    color: var(--text-faint); font-family: inherit; font-size: var(--font-xs);
+    cursor: pointer; transition: all 0.15s;
+}
+.filter-btn + .filter-btn { border-left: 1px solid var(--border-light); }
+.filter-btn:hover { color: var(--text-muted); }
+.filter-btn.active { background: rgba(255, 255, 255, 0.1); color: var(--text-secondary); }
+
 /* --- Right panel (detail cards) --- */
 
 .right-panel {
