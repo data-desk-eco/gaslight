@@ -14,3 +14,4 @@ node_modules/
 .superpowers/
 analysis/
 .playwright-mcp/
+!data/wells_nm.parquet

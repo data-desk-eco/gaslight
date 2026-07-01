@@ -5,7 +5,7 @@ night a given flare was observed burning. Powers timelines and lets you see
 when a flare started, stopped, or intensified.
 
 - **Grain:** one row per flare site × detected night
-- **Rows:** 205,969
+- **Rows:** 258,565
 - **Source:** VIIRS Nightfire (VNF)
 - **Scope:** Detected nights only, 2021-01-01 onward.
 

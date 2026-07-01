@@ -26,7 +26,7 @@ function bboxSql(latCol, lonCol, lat, lon) {
 // Tier 1: visible layers loaded right after first paint (~750K total)
 // Tier 2: deferred until first query (vnf_detections 667K, gatherers 308K, production 288K, leases 44K)
 const TIER0 = ['vnf'];
-const TIER1 = ['permits', 'nmocd', 'plumes', 'facilities', 'wells'];
+const TIER1 = ['permits', 'nmocd', 'plumes', 'facilities', 'wells_tx', 'wells_nm'];
 
 function _fmtSize(bytes) {
     return bytes < 1024 ? bytes + ' B'
@@ -430,8 +430,10 @@ function _searchWhere(layer, term) {
             return `(operator ILIKE ${term} OR facility_name ILIKE ${term} OR county ILIKE ${term})`;
         case 'plumes':
             return `(CAST(plume_id AS VARCHAR) ILIKE ${term} OR source ILIKE ${term} OR satellite ILIKE ${term} OR CAST(date AS VARCHAR) ILIKE ${term} OR sector ILIKE ${term})`;
-        case 'wells':
+        case 'wells_tx':
             return `(CAST(api AS VARCHAR) ILIKE ${term} OR oil_gas_code ILIKE ${term} OR lease_district ILIKE ${term} OR CAST(lease_number AS VARCHAR) ILIKE ${term} OR CAST(well_number AS VARCHAR) ILIKE ${term} OR operator_name ILIKE ${term} OR lease_name ILIKE ${term})`;
+        case 'wells_nm':
+            return `(CAST(api AS VARCHAR) ILIKE ${term} OR well_name ILIKE ${term} OR CAST(well_number AS VARCHAR) ILIKE ${term} OR well_type ILIKE ${term} OR status ILIKE ${term} OR operator ILIKE ${term} OR district ILIKE ${term})`;
         case 'infra':
             return `(CAST(serial_number AS VARCHAR) ILIKE ${term} OR facility_name ILIKE ${term} OR plant_type ILIKE ${term})`;
     }
@@ -464,12 +466,18 @@ function _layerBaseSql(layer, where) {
                 round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r,
                 source, satellite, CAST(date AS VARCHAR) AS date, emission_rate, emission_uncertainty, sector
                 FROM 'plumes.parquet' ${w}`;
-        case 'wells':
+        case 'wells_tx':
             return `SELECT api, oil_gas_code, lease_district, lease_number, well_number,
                 operator_name, latitude, longitude,
                 round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r,
                 flared_mcf, produced_mcf, flaring_intensity_pct, lease_name
-                FROM 'wells.parquet' ${w}`;
+                FROM 'wells_tx.parquet' ${w}`;
+        case 'wells_nm':
+            return `SELECT api, well_name, well_number, well_type, status,
+                operator, district, latitude, longitude,
+                round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r,
+                measured_depth, true_vertical_depth, spud_date, last_production
+                FROM 'wells_nm.parquet' ${w}`;
         case 'infra':
             return `SELECT serial_number, facility_name, plant_type,
                 latitude, longitude,
@@ -479,8 +487,8 @@ function _layerBaseSql(layer, where) {
     return null;
 }
 
-const _latCol = { flares: 'lat', permits: 'latitude', nmocd: 'latitude', plumes: 'latitude', wells: 'latitude', infra: 'latitude' };
-const _lonCol = { flares: 'lon', permits: 'longitude', nmocd: 'longitude', plumes: 'longitude', wells: 'longitude', infra: 'longitude' };
+const _latCol = { flares: 'lat', permits: 'latitude', nmocd: 'latitude', plumes: 'latitude', wells_tx: 'latitude', wells_nm: 'latitude', infra: 'latitude' };
+const _lonCol = { flares: 'lon', permits: 'longitude', nmocd: 'longitude', plumes: 'longitude', wells_tx: 'longitude', wells_nm: 'longitude', infra: 'longitude' };
 
 export async function queryDrawerRows(layer, bounds, search, sortCol, sortDir, limit = 1000) {
     const { south, north, west, east } = bounds;
@@ -544,23 +552,13 @@ export async function queryMapSearch(layer, search) {
     };
 }
 
-export async function queryWells({ bounds } = {}) {
-    await need('wells');
-    const conditions = [];
-    if (bounds) {
-        conditions.push(`latitude BETWEEN ${bounds.south} AND ${bounds.north}`);
-        conditions.push(`longitude BETWEEN ${bounds.west} AND ${bounds.east}`);
-    }
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-    const result = await query(`
-        SELECT api, oil_gas_code, lease_district, lease_number, well_number,
-            operator_name, latitude AS _lat, longitude AS _lon,
-            round(latitude, 2) AS latitude, round(longitude, 2) AS longitude,
-            flared_mcf, produced_mcf, flaring_intensity_pct, lease_name
-        FROM 'wells.parquet'
-        ${where}
-    `);
-    const data = rows(result);
+function _boundsWhere(bounds) {
+    if (!bounds) return '';
+    return `WHERE latitude BETWEEN ${bounds.south} AND ${bounds.north}
+        AND longitude BETWEEN ${bounds.west} AND ${bounds.east}`;
+}
+
+function _pointFC(data) {
     return {
         type: 'FeatureCollection',
         features: data.map(r => {
@@ -572,4 +570,34 @@ export async function queryWells({ bounds } = {}) {
             };
         })
     };
+}
+
+export async function queryWells({ bounds } = {}) {
+    await need('wells_tx');
+    const result = await query(`
+        SELECT api, oil_gas_code, lease_district, lease_number, well_number,
+            operator_name, latitude AS _lat, longitude AS _lon,
+            round(latitude, 2) AS latitude, round(longitude, 2) AS longitude,
+            flared_mcf, produced_mcf, flaring_intensity_pct, lease_name
+        FROM 'wells_tx.parquet'
+        ${_boundsWhere(bounds)}
+    `);
+    return _pointFC(rows(result));
+}
+
+// NM OCD wells (header attributes only — no PDQ lease/flaring metrics exist).
+export async function queryWellsNm({ bounds } = {}) {
+    await need('wells_nm');
+    const result = await query(`
+        SELECT api, well_name, well_number, well_type, status,
+            operator, district, section, township, range, footages,
+            measured_depth, true_vertical_depth,
+            CAST(spud_date AS VARCHAR) AS spud_date,
+            CAST(last_production AS VARCHAR) AS last_production,
+            latitude AS _lat, longitude AS _lon,
+            round(latitude, 2) AS latitude, round(longitude, 2) AS longitude
+        FROM 'wells_nm.parquet'
+        ${_boundsWhere(bounds)}
+    `);
+    return _pointFC(rows(result));
 }

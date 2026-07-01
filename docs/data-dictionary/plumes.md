@@ -5,7 +5,7 @@ detections of methane emissions with estimated rates. An independent
 emissions signal to cross-reference against flares and leases.
 
 - **Grain:** one row per plume observation (`plume_id`)
-- **Rows:** 6,581
+- **Rows:** 10,643
 - **Source:** Carbon Mapper methane plumes, UNEP IMEO methane plumes
 - **Scope:** Permian bbox.
 

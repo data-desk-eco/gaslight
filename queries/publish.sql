@@ -77,7 +77,7 @@ CREATE OR REPLACE TEMP TABLE lease_well_count AS
 SELECT lease_district AS district,
     normalize_lease(lease_number) AS lease_number,
     count(*) AS well_count
-FROM raw.wells
+FROM raw.wells_tx
 WHERE latitude != 0 AND longitude != 0
   AND in_permian(latitude, longitude)
 GROUP BY 1, 2;
@@ -156,7 +156,7 @@ SEMI JOIN permian.permits pp ON pp.filing_no = pl.filing_no;
 -- ---------------------------------------------------------------------------
 -- wells — every Permian oil/gas well with per-lease flaring metrics
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE TABLE permian.wells AS
+CREATE OR REPLACE TABLE permian.wells_tx AS
 SELECT w.api, w.oil_gas_code, w.lease_district,
     normalize_lease(w.lease_number) AS lease_number, w.well_number,
     w.operator_no, COALESCE(o.operator_name, 'Unknown') AS operator_name,
@@ -167,7 +167,7 @@ SELECT w.api, w.oil_gas_code, w.lease_district,
          THEN round(100.0 * lf.total_flared_mcf / lf.total_gas_prod_mcf, 1)
          ELSE NULL END AS flaring_intensity_pct,
     lf.lease_name
-FROM raw.wells w
+FROM raw.wells_tx w
 LEFT JOIN raw.operators o ON o.operator_number = w.operator_no
 LEFT JOIN lease_flaring lf
     ON lf.district = w.lease_district
@@ -261,6 +261,23 @@ WHERE incident_date >= getvariable('start_date')
   AND in_permian(latitude, longitude);
 
 -- ---------------------------------------------------------------------------
+-- wells_nm — New Mexico OCD well headers (active, un-plugged), Permian. The NM
+-- counterpart to rrc wells; no PDQ/lease flaring metrics exist on this side, so
+-- these carry header attributes only (type, status, depths, spud, operator).
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE TABLE permian.wells_nm AS
+SELECT api, well_name, well_number, well_type, status,
+    operator, ogrid, district,
+    section, township, range, footages,
+    apd_date, spud_date, last_production,
+    round(measured_depth, 0) AS measured_depth,
+    round(true_vertical_depth, 0) AS true_vertical_depth,
+    round(latitude, 6) AS latitude, round(longitude, 6) AS longitude
+FROM raw.wells_nm
+WHERE latitude != 0 AND longitude != 0
+  AND in_permian(latitude, longitude);
+
+-- ---------------------------------------------------------------------------
 -- facilities — RRC R-3 gas processing facilities (Permian)
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE TABLE permian.facilities AS
@@ -301,12 +318,13 @@ CREATE OR REPLACE TABLE dist.vnf_sites         AS SELECT * FROM permian.vnf_site
 CREATE OR REPLACE TABLE dist.vnf_detections    AS SELECT * FROM permian.vnf_detections;
 CREATE OR REPLACE TABLE dist.permits           AS SELECT * FROM permian.permits;
 CREATE OR REPLACE TABLE dist.permit_leases     AS SELECT * FROM permian.permit_leases;
-CREATE OR REPLACE TABLE dist.wells             AS SELECT * FROM permian.wells;
+CREATE OR REPLACE TABLE dist.wells_tx             AS SELECT * FROM permian.wells_tx;
 CREATE OR REPLACE TABLE dist.leases            AS SELECT * FROM permian.leases;
 CREATE OR REPLACE TABLE dist.monthly_flaring   AS SELECT * FROM permian.monthly_flaring;
 CREATE OR REPLACE TABLE dist.gatherers         AS SELECT * FROM permian.gatherers;
 CREATE OR REPLACE TABLE dist.plumes            AS SELECT * FROM permian.plumes;
 CREATE OR REPLACE TABLE dist.nm_notifications  AS SELECT * FROM permian.nm_notifications;
+CREATE OR REPLACE TABLE dist.wells_nm          AS SELECT * FROM permian.wells_nm;
 CREATE OR REPLACE TABLE dist.facilities        AS SELECT * FROM permian.facilities;
 CREATE OR REPLACE TABLE dist.operators         AS SELECT * FROM permian.operators;
 CREATE OR REPLACE TABLE dist.s2_detections     AS SELECT * FROM permian.s2_detections;

@@ -5,7 +5,7 @@ analysis window — the satellite-observed flare locations and how active
 each has been. The primary "where are the flares" layer.
 
 - **Grain:** one row per VNF flare site (`flare_id`)
-- **Rows:** 1,297
+- **Rows:** 1,674
 - **Source:** VIIRS Nightfire (VNF)
 - **Scope:** Detected nights only, 2021-01-01 onward, Permian (Texas) bbox.
 

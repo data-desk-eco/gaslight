@@ -1,11 +1,12 @@
-# `wells`
+# `wells_tx`
 
 Every oil/gas well in the Permian (Texas), with location, operator, and the
 flaring metrics of the lease it belongs to. The most useful table for
-lead-hunting: filter by operator, intensity, or area.
+lead-hunting: filter by operator, intensity, or area. (New Mexico wells live
+in the sibling `wells_nm` table.)
 
 - **Grain:** one row per well (API)
-- **Rows:** 324,692
+- **Rows:** 324,735
 - **Source:** RRC well, operator, and P-4 gatherer records, RRC Production Data Query (PDQ)
 - **Scope:** Wells with valid coordinates inside the Permian (Texas) bbox.
 
@@ -41,7 +42,7 @@ current RRC operator; "Unknown" where unmatched.
 -- highest-intensity leases, via their wells
 SELECT DISTINCT lease_district, lease_number, lease_name, operator_name,
        flared_mcf, flaring_intensity_pct
-FROM wells
+FROM wells_tx
 WHERE flaring_intensity_pct IS NOT NULL
 ORDER BY flaring_intensity_pct DESC
 LIMIT 25;

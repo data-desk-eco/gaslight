@@ -74,7 +74,7 @@ dataset:
     -- list tables
     SHOW TABLES;
     -- in-database column dictionary
-    SELECT * FROM _dictionary WHERE table_name = 'wells';
+    SELECT * FROM _dictionary WHERE table_name = 'wells_tx';
     -- the brightest flare sites by total radiant heat
     SELECT flare_id, lat, lon, detection_days, total_rh_mw
     FROM vnf_sites ORDER BY total_rh_mw DESC LIMIT 20;
@@ -262,12 +262,13 @@ tables:
       lease_number: RRC lease number, zero-padded to 6 digits.
       lease_name: Lease name on the filing.
       requested_release_rate_mcf_day: Requested release rate for this lease, MCF/day (nullable).
-  wells:
+  wells_tx:
     purpose: |
       Every oil/gas well in the Permian (Texas), with location, operator, and the
       flaring metrics of the lease it belongs to. The most useful table for
-      lead-hunting: filter by operator, intensity, or area.
-    summary: Every Permian well, with operator and its lease's flaring metrics.
+      lead-hunting: filter by operator, intensity, or area. (New Mexico wells live
+      in the sibling `wells_nm` table.)
+    summary: Every Permian (Texas) well, with operator and its lease's flaring metrics.
     grain: one row per well (API)
     source: [rrc_mft, rrc_pdq]
     scope: Wells with valid coordinates inside the Permian (Texas) bbox.
@@ -281,7 +282,7 @@ tables:
       -- highest-intensity leases, via their wells
       SELECT DISTINCT lease_district, lease_number, lease_name, operator_name,
              flared_mcf, flaring_intensity_pct
-      FROM wells
+      FROM wells_tx
       WHERE flaring_intensity_pct IS NOT NULL
       ORDER BY flaring_intensity_pct DESC
       LIMIT 25;
@@ -299,6 +300,45 @@ tables:
       produced_mcf: Lease total gas produced, MCF, 2021+ (denominator for intensity).
       flaring_intensity_pct: Lease flared ÷ produced, percent (null when no production).
       lease_name: Lease name.
+  wells_nm:
+    purpose: |
+      Every active, un-plugged oil/gas well on the New Mexico side of the Permian,
+      from the NM OCD well search. The counterpart to `wells_tx`; header
+      attributes only (no PDQ lease/flaring metrics exist for New Mexico).
+    summary: Active New Mexico (OCD) Permian wells — header attributes only.
+    grain: one row per well (API)
+    source: [nmocd]
+    scope: NM OCD wells (surface location, cancelled APDs and plugged wells excluded) inside the Permian bbox.
+    caveats: |
+      No flaring/production figures — New Mexico has no equivalent of the RRC PDQ
+      disposition feed, so unlike `wells_tx` these rows carry location and status
+      only. `operator` is the current OCD operator-of-record. Coordinates are
+      NAD83 as published by the OCD.
+    example: |
+      -- active NM Permian wells by operator
+      SELECT operator, count(*) AS n
+      FROM wells_nm WHERE status = 'Active'
+      GROUP BY operator ORDER BY n DESC LIMIT 25;
+    columns:
+      api: Well API number (NM OCD, 30-###-##### format).
+      well_name: Well name.
+      well_number: Well number within the lease/unit.
+      well_type: Well type (Oil, Gas, Injection, etc.).
+      status: OCD well status (Active, New, etc.).
+      operator: Current OCD operator-of-record (company name).
+      ogrid: NM operator (OGRID) number.
+      district: OCD district office (Hobbs, Artesia, etc.).
+      section: Public-land-survey section.
+      township: Public-land-survey township.
+      range: Public-land-survey range.
+      footages: Footage call from the section lines (e.g. "935 FSL, 1443 FWL").
+      apd_date: Initial APD approval date.
+      spud_date: Spud date, where recorded.
+      last_production: Most recent month with reported production (first of month).
+      measured_depth: Measured depth, feet.
+      true_vertical_depth: True vertical depth, feet.
+      latitude: Well latitude, decimal degrees (NAD83).
+      longitude: Well longitude, decimal degrees (NAD83).
   leases:
     purpose: |
       Lease-level rollup of reported flaring for every Permian lease that reported

@@ -16,7 +16,7 @@ LOAD spatial;
 CREATE OR REPLACE TEMP TABLE app_flare_lease_match AS
 SELECT DISTINCT fs.flare_id, w.api, w.oil_gas_code, w.lease_district, w.lease_number
 FROM permian.vnf_sites fs
-JOIN permian.wells w
+JOIN permian.wells_tx w
     ON w.longitude BETWEEN fs.lon - 0.0034 AND fs.lon + 0.0034
     AND w.latitude  BETWEEN fs.lat - 0.0034 AND fs.lat + 0.0034;
 
@@ -26,7 +26,7 @@ JOIN permian.wells w
 CREATE OR REPLACE TEMP TABLE app_flare_wells AS
 SELECT DISTINCT w.api
 FROM permian.vnf_sites fs
-JOIN permian.wells w
+JOIN permian.wells_tx w
     ON w.longitude BETWEEN fs.lon - 0.009 AND fs.lon + 0.009
     AND w.latitude  BETWEEN fs.lat - 0.009 AND fs.lat + 0.009;
 
@@ -97,9 +97,25 @@ COPY (
     SELECT w.api, w.oil_gas_code, w.lease_district, w.lease_number, w.well_number,
         w.operator_name, w.latitude, w.longitude,
         w.flared_mcf, w.produced_mcf, w.flaring_intensity_pct, w.lease_name
-    FROM permian.wells w
+    FROM permian.wells_tx w
     SEMI JOIN app_flare_wells m USING (api)
-) TO 'web/data/wells.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+) TO 'web/data/wells_tx.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
+-- NM OCD wells within ~1km of any flare site (same net as the TX well layer).
+-- No PDQ flaring metrics exist on the NM side, so these ship header attributes
+-- only; the full NM well set lives in dist.wells_nm for the shareable DB.
+COPY (
+    SELECT DISTINCT w.api, w.well_name, w.well_number, w.well_type, w.status,
+        w.operator, w.district, w.section, w.township, w.range, w.footages,
+        w.measured_depth, w.true_vertical_depth,
+        CAST(w.spud_date AS VARCHAR) AS spud_date,
+        CAST(w.last_production AS VARCHAR) AS last_production,
+        w.latitude, w.longitude
+    FROM permian.wells_nm w
+    JOIN permian.vnf_sites fs
+        ON w.longitude BETWEEN fs.lon - 0.009 AND fs.lon + 0.009
+        AND w.latitude  BETWEEN fs.lat - 0.009 AND fs.lat + 0.009
+) TO 'web/data/wells_nm.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- Leases (flare ↔ lease matches via nearby wells)
 COPY (
@@ -111,7 +127,7 @@ COPY (
           FROM app_flare_lease_match) m
     LEFT JOIN (
         SELECT oil_gas_code, lease_district, lease_number, count(*) AS well_count
-        FROM permian.wells GROUP BY 1, 2, 3
+        FROM permian.wells_tx GROUP BY 1, 2, 3
     ) wc USING (oil_gas_code, lease_district, lease_number)
     LEFT JOIN permian.leases lz
         ON lz.lease_district = m.lease_district

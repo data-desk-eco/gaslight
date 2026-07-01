@@ -13,6 +13,7 @@ Flaring analysis for the Permian Basin (both the Texas and New Mexico sides). Ma
 - `scripts/fetch_plumes.py` — fetches Carbon Mapper + IMEO methane plume data
 - `scripts/fetch_r3.py` — fetches RRC R-3 gas processing facility locations
 - `scripts/fetch_nmocd.py` — fetches New Mexico OCD spill/flare/vent incident notifications → `data/nm_incidents.parquet`
+- `scripts/fetch_nmocd_wells.py` — fetches New Mexico OCD well headers (active, un-plugged) → `data/wells_nm.parquet`
 - `queries/load.sql` → `rrc.sql` → `publish.sql` → `export.sql` — SQL pipeline (load → normalise → build shareable DB → export parquets)
 - `queries/s2.sql` — fetch+shape permian-flaring's S2 catalogue into the committed `data/s2_catalogue.parquet` (run by `make s2`)
 - `scripts/build_dictionary.py` — generates the data dictionary (nested markdown under `docs/data-dictionary/` + in-DB `_dictionary`/`_sources` tables) from `docs/data-dictionary/_meta.yaml`
@@ -65,7 +66,7 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 
 - **EBCDIC districts**: numeric codes mapped to alphanumeric via `rrc.district_map` (08→7B, 09→7C, 10→08, 11→8A)
 - **Permits**: `rrc.permits` merges raw filings + detail pages with parsed dates, eliminating repeated COALESCE patterns downstream.
-- **Well flaring**: `wells.parquet` includes per-lease flaring metrics (`flared_mcf`, `produced_mcf`, `flaring_intensity_pct`) joined from PDQ production data. Wells rendered as X markers (SDF symbol layer, visible at all zooms) colored by a combined score `sqrt(intensity% × ln(1 + flared_mcf))` on the same dark-red→white-hot ramp as flare sites. Well detail cards show a lease section with flaring stats and monthly production charts.
+- **Wells (two states)**: the "Oil/gas wells" map layer and the shareable DB carry both states as a symmetric pair. Texas wells (`wells_tx` table → `web/data/wells_tx.parquet`, `wells-tx-layer`) come from the RRC and include per-lease flaring metrics (`flared_mcf`, `produced_mcf`, `flaring_intensity_pct`) joined from PDQ production data; rendered as X markers colored by a combined score `sqrt(intensity% × ln(1 + flared_mcf))` on the dark-red→white-hot flare ramp, with lease/flaring/production detail cards. New Mexico wells (`wells_nm` table → `web/data/wells_nm.parquet`, `wells-nm-layer`) come from the NM OCD well search (active, un-plugged, surface locations); no PDQ flaring feed exists on the NM side, so they carry header attributes only (type, status, spud, depths, operator) and render flat in `--color-well`. Both ride the single "Wells" toggle; each gets its own drawer tab ("Wells (TX)" / "Wells (NM)") and detail card. The web layer ships only wells within ~1km of a flare site; the full whole-Permian sets live in `dist.wells_tx` / `dist.wells_nm`.
 - **Gatherers/Purchasers**: `gatherers.parquet` from P-4 EBCDIC type 03 records (P4GPN segment). Links each lease to its gatherers, purchasers, and nominators via P-5 org numbers. Shown in well detail cards under the lease section, with current entities displayed prominently and historical ones collapsed.
 - **IMEO source**: `data/imeo_plumes.geojson` — manual download from methanedata.unep.org (no API).
 - **Permit coverage**: `rrc.permit_leases` maps each SWR 32 filing to its underlying leases.
@@ -88,6 +89,7 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 - `make plumes` — fetch latest plume data
 - `make r3` — fetch RRC R-3 gas processing facilities
 - `make nmocd` — fetch New Mexico OCD spill/flare/vent notifications → `data/nm_incidents.parquet`
+- `make nmocd-wells` — fetch New Mexico OCD well headers → `data/wells_nm.parquet`
 - `make s2` — fetch permian-flaring's S2 catalogue → `data/s2_catalogue.parquet` (run `make s2-export` in permian-flaring first, then `make db` to ingest)
 - `make clean` — removes derived data
 - `make help` — list all targets
