@@ -469,7 +469,7 @@ function addLayers() {
     map.addLayer({
         id: 'flare-pixels-label', type: 'symbol', source: 'flare-pixel-labels',
         layout: {
-            'text-field': 'FLARE DETECTION AREA',
+            'text-field': 'VNF FLARE AREA',
             'text-font': ['Noto Sans Regular'],
             'text-size': ['interpolate', ['exponential', 2], ['zoom'], 13, 2.75, 15, 11, 17, 44],
             'text-anchor': 'bottom-left',
