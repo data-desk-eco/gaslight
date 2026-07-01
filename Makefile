@@ -1,7 +1,7 @@
 WORKERS ?= 32
 export WORKERS
 
-.PHONY: all db refresh publish export release vendor serve permits permit-details wells vnf plumes r3 eia s2 clean help
+.PHONY: all db refresh publish export release vendor serve permits permit-details wells vnf plumes r3 eia s2 nmocd clean help
 
 all: db
 
@@ -12,6 +12,7 @@ wells: data/wells.csv data/operators.csv
 vnf: data/vnf_profiles/.done
 plumes: data/plumes_cm.csv data/plumes_imeo.csv
 r3: data/r3_facilities.csv
+nmocd: data/nm_incidents.parquet
 eia: data/eia_plants.csv
 permit-details: data/permit_details.csv
 
@@ -27,6 +28,10 @@ data/permit_details.csv data/permit_properties.csv data/permit_locations.csv dat
 
 data/r3_facilities.csv:
 	uv run scripts/fetch_r3.py
+
+# new mexico ocd spill/release incidents (flaring, venting, spills)
+data/nm_incidents.parquet:
+	uv run scripts/fetch_nmocd.py
 
 # eia-757 processing plant survey locations -- the r-3 list misses most major
 # permian plants, so the undeclared-flaring analysis excludes against both
@@ -84,7 +89,7 @@ refresh:
 db: dist/gaslight.duckdb export
 
 # Foundation: faithful raw load + normalised rrc tables
-data/data.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_profiles/.done data/permit_locations.csv data/permit_details.csv data/permit_properties.csv data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/pdq/.done data/s2_catalogue.parquet queries/load.sql queries/rrc.sql
+data/data.duckdb: data/filings.csv data/wells.csv data/operators.csv data/vnf_profiles/.done data/permit_locations.csv data/permit_details.csv data/permit_properties.csv data/r3_facilities.csv data/plumes_cm.csv data/plumes_imeo.csv data/pdq/.done data/s2_catalogue.parquet data/nm_incidents.parquet queries/load.sql queries/rrc.sql
 	@rm -f $@
 	duckdb $@ < queries/load.sql
 	duckdb $@ < queries/rrc.sql
@@ -151,6 +156,7 @@ help:
 	@echo "  make vnf             Fetch VNF profiles from EOG"
 	@echo "  make plumes          Fetch Carbon Mapper + IMEO plumes"
 	@echo "  make r3              Fetch RRC R-3 gas processing facilities"
+	@echo "  make nmocd           Fetch New Mexico OCD spill/flare/vent notifications"
 	@echo ""
 	@echo "  make s2              Fetch permian-flaring's S2 catalogue → data/s2_catalogue.parquet (then make db)"
 	@echo ""

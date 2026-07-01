@@ -167,6 +167,7 @@ map.on('load', async () => {
     bootLog('tier1  fetch permits, plumes, wells, facilities');
     db.loadTier1();
     loadPermits();
+    loadNmocd();
     // Load permian-flaring's score-capped S2 catalogue before handling deep links
     await s2.load();
     if (s2.isLoaded()) {
@@ -241,6 +242,7 @@ function featureKey(f) {
     if (p.plume_id != null) return `plume:${p.plume_id}`;
     if (p.api != null) return `well:${p.api}`;
     if (p.serial_number != null && f.layer.id.startsWith('infra')) return `infra:${p.serial_number}`;
+    if (f.layer.id.startsWith('nmocd') && p.latitude != null) return `nmocd:${p.latitude}_${p.longitude}`;
     if (p.name != null && p.latitude != null) return `permit:${p.latitude}_${p.longitude}_${p.name}`;
     return `${f.layer.id}:${f.id}`;
 }
@@ -250,6 +252,7 @@ function addEmptySources() {
     map.addSource('texas', { type: 'geojson', data: 'data/texas.geojson' });
     map.addSource('flares', { type: 'geojson', data: empty });
     map.addSource('permits', { type: 'geojson', data: empty });
+    map.addSource('nmocd', { type: 'geojson', data: empty });
     map.addSource('plumes', { type: 'geojson', data: empty });
     map.addSource('wells', { type: 'geojson', data: empty });
     map.addSource('infra', { type: 'geojson', data: empty });
@@ -378,6 +381,24 @@ function addLayers() {
         id: 'permits-layer', type: 'circle', source: 'permits',
         paint: {
             'circle-radius': permitRadius,
+            'circle-color': COLORS.permit,
+            'circle-opacity': 0.25,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': COLORS.permit
+        }
+    });
+
+    // NM OCD notifications (flare/vent notices, aggregated to sites) — same
+    // "Notifications" category/color as TX permits; radius scales on event count.
+    const nmocdRadius = zoomScale([
+        'interpolate', ['linear'],
+        ['coalesce', ['get', 'n_events'], 0],
+        0, 1.5, 5, 2.5, 25, 4, 100, 6, 500, 10, 2000, 16
+    ]);
+    map.addLayer({
+        id: 'nmocd-layer', type: 'circle', source: 'nmocd',
+        paint: {
+            'circle-radius': nmocdRadius,
             'circle-color': COLORS.permit,
             'circle-opacity': 0.25,
             'circle-stroke-width': 1,
@@ -577,6 +598,14 @@ async function loadPermits() {
     setTimeout(() => drawer.setData('permits', data.features), 0);
 }
 
+async function loadNmocd() {
+    if (!layerState.permits) return;
+    const data = await db.queryNmocd();
+    _originalSourceData.nmocd = data;
+    map.getSource('nmocd').setData(data);
+    setTimeout(() => drawer.setData('nmocd', data.features), 0);
+}
+
 async function loadPlumes() {
     if (!layerState.plumes) return;
     const data = await db.queryPlumes();
@@ -644,7 +673,7 @@ function updateStats() {
 const LAYER_MAP = {
     flares: ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer', 'flare-pixels-label'],
     s2: ['s2-points', 's2-points-fill'],
-    permits: ['permits-layer'],
+    permits: ['permits-layer', 'nmocd-layer'],
     plumes: ['plumes-layer'],
     wells: ['wells-layer'],
     infra: ['infra-layer']
@@ -722,7 +751,7 @@ function setLayerVisibility(layer, visible) {
         map.setLayoutProperty(id, 'visibility', vis);
     }
     if (visible) {
-        if (layer === 'permits') loadPermits();
+        if (layer === 'permits') { loadPermits(); loadNmocd(); }
         if (layer === 'plumes') loadPlumes();
         if (layer === 'wells') loadWells();
         if (layer === 'infra') loadInfra();
@@ -735,6 +764,7 @@ const ALL_CLICK_LAYERS = [
     'flare-pixels-layer',
     's2-points',
     'permits-layer',
+    'nmocd-layer',
     'plumes-layer',
     'wells-layer',
     'infra-layer'
@@ -982,6 +1012,7 @@ const LAYER_DEFAULTS = {
         'text-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 15, 1],
     },
     'permits-layer': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
+    'nmocd-layer': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
     'plumes-layer': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
     'wells-layer': { 'icon-opacity': 0.85 },
     'infra-layer': { 'icon-opacity': 0.85 },
@@ -1014,7 +1045,7 @@ function dimPaint(base, ratio, match) {
     return result;
 }
 
-function activateSelection({ flareId, permitProps, plumeId, wellApi, infraSerial, s2Id } = {}) {
+function activateSelection({ flareId, permitProps, nmocdProps, plumeId, wellApi, infraSerial, s2Id } = {}) {
     $('map-dim-overlay').classList.add('active');
 
     const flareMatch = flareId != null ? ['==', ['get', 'flare_id'], flareId] : null;
@@ -1026,6 +1057,9 @@ function activateSelection({ flareId, permitProps, plumeId, wellApi, infraSerial
             ['==', ['get', 'latitude'], Number(permitProps.latitude)],
             ['==', ['get', 'longitude'], Number(permitProps.longitude)],
             ['==', ['get', 'name'], permitProps.name]] : null,
+        'nmocd-layer': nmocdProps ? ['all',
+            ['==', ['get', 'latitude'], Number(nmocdProps.latitude)],
+            ['==', ['get', 'longitude'], Number(nmocdProps.longitude)]] : null,
         'plumes-layer': plumeId != null ? ['==', ['get', 'plume_id'], plumeId] : null,
         'wells-layer': wellApi != null ? ['==', ['get', 'api'], wellApi] : null,
         'infra-layer': infraSerial != null ? ['==', ['get', 'serial_number'], infraSerial] : null,
@@ -1070,6 +1104,7 @@ function showFeatureDetail(feature) {
     const selOpts = {};
     if (p.flare_id != null) selOpts.flareId = p.flare_id;
     if (layer.startsWith('permits-')) selOpts.permitProps = { latitude: p.latitude, longitude: p.longitude, name: p.name };
+    if (layer.startsWith('nmocd-')) selOpts.nmocdProps = { latitude: p.latitude, longitude: p.longitude };
     if (layer.startsWith('plumes-')) selOpts.plumeId = p.plume_id;
     if (layer.startsWith('wells-')) selOpts.wellApi = p.api;
     if (layer.startsWith('infra-')) selOpts.infraSerial = p.serial_number;
@@ -1087,6 +1122,7 @@ function showFeatureDetail(feature) {
         else {
             updateHash(SELECTION_KEYS);
             if (layer.startsWith('permits-')) showPermitDetail(feature);
+            else if (layer.startsWith('nmocd-')) showNmocdDetail(feature);
             else if (layer.startsWith('wells-')) showWellDetail(feature);
             else if (layer.startsWith('infra-')) showInfraDetail(feature);
         }
@@ -1097,7 +1133,7 @@ function showFeatureDetail(feature) {
 
 function updateOverlapNav() {
     const layer0 = overlappingFeatures[0]?.layer?.id || '';
-    const group = layer0.startsWith('permits-') ? 'permits-' : layer0.startsWith('plumes-') ? 'plumes-' : null;
+    const group = layer0.startsWith('permits-') ? 'permits-' : layer0.startsWith('nmocd-') ? 'nmocd-' : layer0.startsWith('plumes-') ? 'plumes-' : null;
     const nav = $('overlap-nav');
     if (group) {
         const grouped = overlappingFeatures.filter(f => f.layer.id.startsWith(group));
@@ -1295,6 +1331,31 @@ function showPermitDetail(feature) {
             )
         ).join('')}</div>`;
     }).catch(() => {});
+}
+
+function showNmocdDetail(feature) {
+    const p = feature.properties;
+    const vented = Number(p.vented_mcf) || 0;
+    const title = p.facility_name || p.operator || 'NM notification';
+    openDetail(title, p.latitude, p.longitude, [
+        card.stats([
+            { value: Number(p.n_events).toLocaleString(), unit: 'notifications' },
+            { value: Number(p.n_vent).toLocaleString(), unit: 'venting' },
+            vented > 0 && { value: vented.toLocaleString(), unit: 'Mcf vented' },
+        ].filter(Boolean)),
+        card.fields(
+            ['Operator', p.operator || 'N/A'],
+            ['County', p.county || 'N/A'],
+            ['Flare notices', Number(p.n_flare).toLocaleString()],
+            ['Vent notices', Number(p.n_vent).toLocaleString()],
+            ['First', formatDate(p.first_date)],
+            ['Latest', formatDate(p.last_date)],
+            ['Source', 'NM OCD'],
+        ),
+    ]);
+    // NM OCD spill search (no stable per-incident permalink) — link the title out.
+    const url = 'https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/Spills/SpillSearchResults.aspx';
+    $('detail-title').innerHTML = `<a href="${url}" target="_blank" rel="noopener" style="color: inherit; text-decoration: none;">${title}</a>`;
 }
 
 function plumeUrl(source, id) {

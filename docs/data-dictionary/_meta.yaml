@@ -137,6 +137,12 @@ sources:
     url: https://methanedata.unep.org/
     license: Public; attribute UNEP IMEO.
     retrieval: Manual GeoJSON download from methanedata.unep.org.
+  - id: nmocd
+    name: New Mexico OCD spill/release incidents
+    provider: New Mexico Energy, Minerals and Natural Resources Dept. — Oil Conservation Division
+    url: https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/Spills/SpillSearchResults.aspx
+    license: Public record.
+    retrieval: scripts/fetch_nmocd.py.
 
 tables:
   vnf_sites:
@@ -419,6 +425,48 @@ tables:
       emission_rate: Estimated methane emission rate, kg/hr.
       emission_uncertainty: Uncertainty on the emission rate, kg/hr.
       sector: Attributed sector — 'og' (oil & gas), 'coal', 'waste', or 'other'.
+  nm_notifications:
+    purpose: |
+      New Mexico OCD spill/release incident notifications — the New Mexico
+      counterpart to the Texas SWR-32 permit and plume layers. Includes routine
+      flaring and venting notices as well as spills, so the NM Delaware side of
+      the Permian is covered alongside Texas.
+    summary: New Mexico OCD spill/flare/vent incident notifications (Permian, 2021+).
+    grain: one row per reported incident (`incident_number` may repeat across materials)
+    source: [nmocd]
+    scope: Permian bbox, 2021+.
+    caveats: |
+      Self-reported by operators to the NM OCD, like the RRC disposition volumes
+      on the Texas side — not an independent observation. `incident_type` is
+      dominated by routine `Flare` notices; `Vent` / `Vent with Flaring` carry the
+      vented-gas volume in `volume_released` (`volume_unit` usually 'Mcf'). Many
+      spill rows carry no volume. Coordinates are operator-supplied.
+    example: |
+      SELECT incident_type, count(*) AS n,
+        round(sum(volume_released) FILTER (volume_unit ILIKE 'mcf')) AS mcf
+      FROM nm_notifications GROUP BY incident_type ORDER BY n DESC;
+    columns:
+      incident_number: OCD incident identifier.
+      incident_date: Date the incident occurred.
+      notification_date: Date the operator notified the OCD.
+      incident_type: Incident category — 'Flare', 'Vent', 'Vent with Flaring', 'Oil Release', etc.
+      severity: OCD severity classification (Minor / Major).
+      operator: Reporting operator name.
+      ogrid: NM operator (OGRID) number.
+      facility_name: Facility name, where given.
+      well_name: Associated well name, where given.
+      api: Well API number, where given.
+      material: Material released (e.g. 'Natural Gas Vented', 'Crude Oil').
+      volume_released: Volume released, in `volume_unit`.
+      volume_unit: Unit for the volumes (usually 'Mcf' for gas, 'BBL' for liquids).
+      cause: Reported cause (e.g. 'Equipment Failure', 'Liquids Unloading').
+      spill_source: Reported source (e.g. 'Well', 'Flow Line - Production').
+      lease_type: Land/lease type — 'Federal', 'State', 'Private'.
+      county: New Mexico county (name + FIPS).
+      district: OCD district office (Hobbs, Artesia, …).
+      ulstr: Unit-letter / section / township / range legal location.
+      latitude: Incident latitude, decimal degrees WGS84.
+      longitude: Incident longitude, decimal degrees WGS84.
   facilities:
     purpose: |
       RRC R-3 gas processing facilities (gas plants). Used to distinguish

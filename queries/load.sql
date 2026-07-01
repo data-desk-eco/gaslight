@@ -164,6 +164,17 @@ WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
 CREATE OR REPLACE TABLE raw.s2_catalogue AS
 SELECT * FROM read_parquet('data/s2_catalogue.parquet');
 
+-- New Mexico OCD spill/release incidents (flaring, venting, spills). Fetched by
+-- `make nmocd`; one row per reported incident-material. Dates arrive as ISO
+-- strings (garbage years already dropped at fetch); cast to DATE here.
+CREATE OR REPLACE TABLE raw.nm_incidents AS
+SELECT * REPLACE (
+        TRY_CAST(incident_date AS DATE) AS incident_date,
+        TRY_CAST(notification_date AS DATE) AS notification_date),
+    CASE WHEN latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180
+         THEN ST_Point(longitude, latitude) END AS geom
+FROM read_parquet('data/nm_incidents.parquet');
+
 -- Spatial indexes
 CREATE INDEX idx_wells_geom ON raw.wells USING RTREE (geom);
 CREATE INDEX idx_vnf_geom ON raw.vnf USING RTREE (geom);

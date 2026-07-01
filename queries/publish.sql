@@ -20,14 +20,15 @@ SET VARIABLE lat_min = 30.0;
 SET VARIABLE lat_max = 33.5;
 SET VARIABLE lon_min = -104.5;
 SET VARIABLE lon_max = -100.0;
-SET VARIABLE nm_border_lon = -103.064;  -- TX-NM border longitude (above 32°N)
 
 CREATE OR REPLACE MACRO normalize_lease(n) AS LPAD(n, 6, '0');
 
+-- Whole Permian, both states. (Historically New Mexico north of 32°N was clipped
+-- out to keep the product Texas-only; that restriction is lifted so the NM OCD
+-- and satellite layers fill in the New Mexico Delaware side.)
 CREATE OR REPLACE MACRO in_permian(lat, lon) AS
     lat BETWEEN getvariable('lat_min') AND getvariable('lat_max')
-    AND lon BETWEEN getvariable('lon_min') AND getvariable('lon_max')
-    AND (lat <= 32.0 OR lon >= getvariable('nm_border_lon'));
+    AND lon BETWEEN getvariable('lon_min') AND getvariable('lon_max');
 
 CREATE SCHEMA IF NOT EXISTS permian;
 
@@ -243,6 +244,23 @@ FROM raw.plumes
 WHERE in_permian(latitude, longitude);
 
 -- ---------------------------------------------------------------------------
+-- nm_notifications — New Mexico OCD spill/release notifications (flaring,
+-- venting, spills), Permian, 2021+ (matching every other temporal layer). One
+-- row per reported incident; the TX analogue of SWR-32 permits + plume events.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE TABLE permian.nm_notifications AS
+SELECT incident_number, incident_date, notification_date,
+    incident_type, severity, operator, ogrid,
+    facility_name, well_name, api, material,
+    round(volume_released, 1) AS volume_released, volume_unit,
+    cause, spill_source, lease_type, county, district, ulstr,
+    round(latitude, 6) AS latitude, round(longitude, 6) AS longitude
+FROM raw.nm_incidents
+WHERE incident_date >= getvariable('start_date')
+  AND incident_date < DATE '2027-01-01'
+  AND in_permian(latitude, longitude);
+
+-- ---------------------------------------------------------------------------
 -- facilities — RRC R-3 gas processing facilities (Permian)
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE TABLE permian.facilities AS
@@ -288,6 +306,7 @@ CREATE OR REPLACE TABLE dist.leases            AS SELECT * FROM permian.leases;
 CREATE OR REPLACE TABLE dist.monthly_flaring   AS SELECT * FROM permian.monthly_flaring;
 CREATE OR REPLACE TABLE dist.gatherers         AS SELECT * FROM permian.gatherers;
 CREATE OR REPLACE TABLE dist.plumes            AS SELECT * FROM permian.plumes;
+CREATE OR REPLACE TABLE dist.nm_notifications  AS SELECT * FROM permian.nm_notifications;
 CREATE OR REPLACE TABLE dist.facilities        AS SELECT * FROM permian.facilities;
 CREATE OR REPLACE TABLE dist.operators         AS SELECT * FROM permian.operators;
 CREATE OR REPLACE TABLE dist.s2_detections     AS SELECT * FROM permian.s2_detections;

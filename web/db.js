@@ -26,7 +26,7 @@ function bboxSql(latCol, lonCol, lat, lon) {
 // Tier 1: visible layers loaded right after first paint (~750K total)
 // Tier 2: deferred until first query (vnf_detections 667K, gatherers 308K, production 288K, leases 44K)
 const TIER0 = ['vnf'];
-const TIER1 = ['permits', 'plumes', 'facilities', 'wells'];
+const TIER1 = ['permits', 'nmocd', 'plumes', 'facilities', 'wells'];
 
 function _fmtSize(bytes) {
     return bytes < 1024 ? bytes + ' B'
@@ -362,6 +362,27 @@ export async function queryPlumes() {
     };
 }
 
+// NM OCD flare/vent notifications, already aggregated to sites in export.sql.
+export async function queryNmocd() {
+    await need('nmocd');
+    const result = await query(`
+        SELECT latitude AS _lat, longitude AS _lon,
+            round(latitude, 4) AS latitude, round(longitude, 4) AS longitude,
+            operator, facility_name, county,
+            n_events, n_flare, n_vent, vented_mcf,
+            CAST(first_date AS VARCHAR) AS first_date,
+            CAST(last_date AS VARCHAR) AS last_date, incident_number
+        FROM 'nmocd.parquet'
+    `);
+    return {
+        type: 'FeatureCollection',
+        features: rows(result).map(r => {
+            const { _lat, _lon, ...props } = r;
+            return { type: 'Feature', geometry: { type: 'Point', coordinates: [Number(_lon), Number(_lat)] }, properties: props };
+        })
+    };
+}
+
 export async function queryNearbyFacilities(lat, lon, radiusKm = 5) {
     await need('facilities');
     const { dLat, dLon } = bboxDeltas(lat, radiusKm);
@@ -405,6 +426,8 @@ function _searchWhere(layer, term) {
             return `(CAST(first_detected AS VARCHAR) ILIKE ${term} OR CAST(last_detected AS VARCHAR) ILIKE ${term})`;
         case 'permits':
             return `(name ILIKE ${term} OR county ILIKE ${term} OR district ILIKE ${term} OR release_type ILIKE ${term} OR operator_name ILIKE ${term})`;
+        case 'nmocd':
+            return `(operator ILIKE ${term} OR facility_name ILIKE ${term} OR county ILIKE ${term})`;
         case 'plumes':
             return `(CAST(plume_id AS VARCHAR) ILIKE ${term} OR source ILIKE ${term} OR satellite ILIKE ${term} OR CAST(date AS VARCHAR) ILIKE ${term} OR sector ILIKE ${term})`;
         case 'wells':
@@ -430,6 +453,12 @@ function _layerBaseSql(layer, where) {
                 MAX(expiration_dt) AS latest_expiration, MAX(release_rate_mcf_day) AS max_release_rate_mcf_day
                 FROM 'permits.parquet' ${w}
                 GROUP BY latitude, longitude, name, county, district, release_type, operator_name`;
+        case 'nmocd':
+            return `SELECT latitude, longitude,
+                round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r,
+                operator, facility_name, county, n_events, n_flare, n_vent, vented_mcf,
+                CAST(last_date AS VARCHAR) AS last_date
+                FROM 'nmocd.parquet' ${w}`;
         case 'plumes':
             return `SELECT plume_id, latitude, longitude,
                 round(latitude, 2) AS lat_r, round(longitude, 2) AS lon_r,
@@ -450,8 +479,8 @@ function _layerBaseSql(layer, where) {
     return null;
 }
 
-const _latCol = { flares: 'lat', permits: 'latitude', plumes: 'latitude', wells: 'latitude', infra: 'latitude' };
-const _lonCol = { flares: 'lon', permits: 'longitude', plumes: 'longitude', wells: 'longitude', infra: 'longitude' };
+const _latCol = { flares: 'lat', permits: 'latitude', nmocd: 'latitude', plumes: 'latitude', wells: 'latitude', infra: 'latitude' };
+const _lonCol = { flares: 'lon', permits: 'longitude', nmocd: 'longitude', plumes: 'longitude', wells: 'longitude', infra: 'longitude' };
 
 export async function queryDrawerRows(layer, bounds, search, sortCol, sortDir, limit = 1000) {
     const { south, north, west, east } = bounds;

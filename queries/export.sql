@@ -72,6 +72,26 @@ COPY (
     FROM permian.facilities
 ) TO 'web/data/facilities.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
+-- NM OCD notifications — flare/vent notices aggregated to sites (one point per
+-- location), mirroring how permits collapse many filings to a marker. Vented
+-- gas (Mcf) is summed so venting sites can be read against the plumes layer.
+COPY (
+    SELECT round(latitude, 5) AS latitude, round(longitude, 5) AS longitude,
+        mode(operator) AS operator, mode(facility_name) AS facility_name,
+        mode(county) AS county,
+        count(*) AS n_events,
+        count(*) FILTER (incident_type = 'Flare') AS n_flare,
+        count(*) FILTER (incident_type IN ('Vent', 'Vent with Flaring')) AS n_vent,
+        round(sum(volume_released) FILTER (
+            incident_type IN ('Vent', 'Vent with Flaring') AND upper(volume_unit) = 'MCF'), 0) AS vented_mcf,
+        CAST(min(incident_date) AS VARCHAR) AS first_date,
+        CAST(max(incident_date) AS VARCHAR) AS last_date,
+        max(incident_number) AS incident_number
+    FROM permian.nm_notifications
+    WHERE incident_type IN ('Flare', 'Vent', 'Vent with Flaring')
+    GROUP BY round(latitude, 5), round(longitude, 5)
+) TO 'web/data/nmocd.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
 -- Wells (those within ~1km of a flare site; see app_flare_wells)
 COPY (
     SELECT w.api, w.oil_gas_code, w.lease_district, w.lease_number, w.well_number,
