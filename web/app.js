@@ -1237,7 +1237,7 @@ function showFlareDetail(feature) {
             if (!groups.has(op)) groups.set(op, []);
             groups.get(op).push(l);
         }
-        el.innerHTML = [...groups.entries()].map(([op, grp]) => {
+        el.innerHTML = card.header('Nearby leases · by current operator') + [...groups.entries()].map(([op, grp]) => {
             const totalFlared = grp.reduce((s, l) => s + (Number(l.reported_flared_mcf) || 0), 0);
             const totalWells = grp.reduce((s, l) => s + (Number(l.well_count) || 0), 0);
             const leaseRows = grp.map(l => {

@@ -306,6 +306,14 @@ tables:
       Only leases with reported flaring appear (a lease absent here reported none).
       Volumes are operator-reported. `flaring_intensity_pct` is null when the lease
       has flaring but no recorded production denominator.
+
+      `operator_name`/`operator_no` are the **current** operator-of-record (latest
+      reported month) — a lease-level label, not an attribution of the whole
+      total. Do **not** rank operators by summing `total_flared_mcf` here: it
+      credits acquirers with a predecessor's pre-deal flaring. For per-operator
+      totals use `monthly_flaring` (operator-attributed per month). `operator_no`
+      is the RRC legal-entity id and does not fold subsidiaries/acquisitions into
+      a parent — company rollups still need a separate crosswalk.
     example: |
       SELECT lease_district, lease_number, lease_name, operator_name,
              total_flared_mcf, flaring_intensity_pct, well_count
@@ -316,7 +324,8 @@ tables:
       lease_district: RRC district (alphanumeric).
       lease_number: RRC lease number, zero-padded to 6 digits.
       lease_name: Lease name (most common spelling across months).
-      operator_name: Reporting operator (most common across months).
+      operator_no: RRC operator number of the current operator-of-record.
+      operator_name: Current operator-of-record (latest reported month).
       total_flared_mcf: Total gas flared/vented over the window, MCF (reported).
       total_gas_prod_mcf: Total gas produced over the window, MCF.
       flaring_intensity_pct: total_flared ÷ total_produced, percent (nullable).
