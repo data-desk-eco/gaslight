@@ -96,6 +96,9 @@ let overlapIndex = 0;
 let flareFeatures = [];
 const _originalSourceData = {}; // stashed per-layer source data for restoring after search
 
+// clamp deep-link zoom to maxZoom — maplibre discards (not clamps) out-of-range hashes
+location.hash = location.hash.replace(/#map=([\d.]+)/, (m, z) => '#map=' + Math.min(+z, 18));
+
 const map = new maplibregl.Map({
     container: 'map',
     style: {
@@ -130,6 +133,7 @@ const map = new maplibregl.Map({
     center: [-102.5, 31.8],
     zoom: 7,
     minZoom: 7,
+    maxZoom: 18, // arcgis world imagery serves "map data not yet available" tiles beyond z19 (= map z18 with 256px tiles)
     maxBounds: [[-107, 29], [-98, 35]],
     projection: 'globe',
     hash: 'map'
