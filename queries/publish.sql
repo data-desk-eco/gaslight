@@ -40,7 +40,12 @@ CREATE OR REPLACE TEMP TABLE lease_flaring AS
 WITH flared AS (
     SELECT district, lease_number,
         sum(total_flared_mcf) AS total_flared_mcf,
-        mode(operator_name) AS operator_name,
+        -- current operator-of-record (latest reported month), not the modal
+        -- label: a lease's whole-window total must not be credited to whoever
+        -- happened to hold it in the most months. per-operator totals come from
+        -- monthly_flaring (operator-attributed per month); see issues #9/#10.
+        arg_max(operator_no, make_date(year, month, 1)) AS operator_no,
+        arg_max(operator_name, make_date(year, month, 1)) AS operator_name,
         mode(lease_name) AS lease_name
     FROM rrc.production
     WHERE district IN ('6E','7B','7C','08','8A')
@@ -60,7 +65,7 @@ SELECT f.district,
     normalize_lease(f.lease_number) AS lease_number,
     f.total_flared_mcf,
     COALESCE(p.total_gas_prod_mcf, f.total_flared_mcf) AS total_gas_prod_mcf,
-    f.operator_name, f.lease_name
+    f.operator_no, f.operator_name, f.lease_name
 FROM flared f
 LEFT JOIN produced p
     ON p.district = f.district
@@ -174,7 +179,7 @@ WHERE w.latitude != 0 AND w.longitude != 0
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE TABLE permian.leases AS
 SELECT lf.district AS lease_district, lf.lease_number,
-    lf.lease_name, lf.operator_name,
+    lf.lease_name, lf.operator_no, lf.operator_name,
     round(lf.total_flared_mcf, 0) AS total_flared_mcf,
     round(lf.total_gas_prod_mcf, 0) AS total_gas_prod_mcf,
     CASE WHEN lf.total_gas_prod_mcf > 0
