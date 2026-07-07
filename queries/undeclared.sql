@@ -8,7 +8,7 @@ create temp table site_lease as
 select v.flare_id, w.oil_gas_code, dm.pdq_district, w.lease_district, w.lease_number,
        any_value(w.lease_name) lease_name, any_value(w.operator_name) operator_name
 from permian.vnf_sites v
-join permian.wells w
+join permian.wells_tx w
   on w.latitude between v.lat - 0.0034 and v.lat + 0.0034
  and w.longitude between v.lon - 0.0034 and v.lon + 0.0034
 join rrc.district_map dm on dm.rrc_district = w.lease_district
@@ -98,7 +98,7 @@ from cmp where det_days >= 3 group by 1 order by 5 desc;
 create temp table sl750 as
 select v.flare_id, w.oil_gas_code, dm.pdq_district, w.lease_number
 from permian.vnf_sites v
-join permian.wells w
+join permian.wells_tx w
   on w.latitude between v.lat - 0.0068 and v.lat + 0.0068
  and w.longitude between v.lon - 0.0068 and v.lon + 0.0068
 join rrc.district_map dm on dm.rrc_district = w.lease_district

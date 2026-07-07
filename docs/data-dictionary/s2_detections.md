@@ -6,7 +6,7 @@ flares. One row per detected site (clustered to an H3 cell), with the
 site's per-date observations carried in the `detections` array.
 
 - **Grain:** one row per H3 flare site
-- **Rows:** 2,553
+- **Rows:** 3,260
 - **Source:** Sentinel-2 SWIR flare detection
 - **Scope:** The Texas clip of permian-flaring's published catalogue (its top 3,000
 sites by detection score, basin-wide; gaslight keeps only the Texas ones).

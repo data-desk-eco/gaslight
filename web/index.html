@@ -39,6 +39,13 @@
             <div class="stats">
                 <div class="stat-row"><span class="stat-label">VNF flare sites</span><span class="stat-value" id="stat-sites">--</span></div>
                 <div class="stat-row"><span class="stat-label">S2 flare sites</span><span class="stat-value" id="stat-s2">--</span></div>
+                <div class="persistence-slider">
+                    <div class="persistence-slider-header">
+                        <span class="stat-label">Minimum persistence</span>
+                        <span class="persistence-slider-value" id="persistence-value">0%</span>
+                    </div>
+                    <input type="range" id="persistence-range" min="0" max="1" step="0.05" value="0">
+                </div>
             </div>
 
             <div class="separator"></div>
@@ -55,8 +62,8 @@
                 </div>
                 <div class="toggle-row" data-layer="permits">
                     <span class="layer-icon" style="border-color: var(--color-permit)"></span>
-                    <span class="filter-label">Permit locations</span>
-                    <input type="checkbox" checked>
+                    <span class="filter-label">Regulatory filings</span>
+                    <input type="checkbox">
                 </div>
                 <div class="toggle-row" data-layer="plumes">
                     <span class="layer-icon" style="border-color: var(--color-plume)"></span>

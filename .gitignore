@@ -3,6 +3,7 @@ data/*
 !data/excluded_facilities.csv
 !data/eia_plants.csv
 !data/s2_catalogue.parquet
+!data/nm_incidents.parquet
 dist/
 .env
 .DS_Store
@@ -13,3 +14,4 @@ node_modules/
 .superpowers/
 analysis/
 .playwright-mcp/
+!data/wells_nm.parquet

@@ -1,6 +1,6 @@
 # gaslight
 
-Flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite flare detections and Sentinel-2 imagery to SWR 32 permitted flare locations, RRC wells, and methane plume observations.
+Flaring analysis for the Permian Basin (both the Texas and New Mexico sides). Matches VIIRS Nightfire satellite flare detections and Sentinel-2 imagery to SWR 32 permitted flare locations, RRC wells, methane plume observations, and New Mexico OCD spill/flare/vent notifications.
 
 ## Layout
 
@@ -12,6 +12,8 @@ Flaring analysis for the Permian Basin. Matches VIIRS Nightfire satellite flare 
 - `scripts/fetch_vnf.py` — fetches VNF profiles from EOG
 - `scripts/fetch_plumes.py` — fetches Carbon Mapper + IMEO methane plume data
 - `scripts/fetch_r3.py` — fetches RRC R-3 gas processing facility locations
+- `scripts/fetch_nmocd.py` — fetches New Mexico OCD spill/flare/vent incident notifications → `data/nm_incidents.parquet`
+- `scripts/fetch_nmocd_wells.py` — fetches New Mexico OCD well headers (active, un-plugged) → `data/wells_nm.parquet`
 - `queries/load.sql` → `rrc.sql` → `publish.sql` → `export.sql` — SQL pipeline (load → normalise → build shareable DB → export parquets)
 - `queries/s2.sql` — fetch+shape permian-flaring's S2 catalogue into the committed `data/s2_catalogue.parquet` (run by `make s2`)
 - `scripts/build_dictionary.py` — generates the data dictionary (nested markdown under `docs/data-dictionary/` + in-DB `_dictionary`/`_sources` tables) from `docs/data-dictionary/_meta.yaml`
@@ -57,22 +59,23 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 3. **Nearby infrastructure (not attribution)**: flare and S2 cards deliberately do *not* name a single operator/facility with a confidence verdict — proximity within a satellite pixel is not ownership, and definitive attribution produced too many wrong calls. Instead the card (`nearbyInfraHtml` in app.js) lists nearby permitted flares (within 375m, operator + site + distance) and nearby R-3 gas plants (within 5km, name + distance); the VNF card additionally lists nearby leases grouped by operator (`vnf-lease-section`). Reader judges.
 4. **Facility matching**: RRC R-3 gas processing facilities matched to flares within 5km, listed as "Nearby gas plants" in the detail card. Gas Plant permits also filtered from the permits layer.
 5. **S2 flare layer (display-only)**: the top `S2_LIMIT` sites by score from permian-flaring's published S2 catalogue, ingested into the gaslight DB (`s2_detections`) and projected to the web map. Each site is a first-class map feature with its own static detail card (B12 stats, per-date timeline chart, glint/score/corroboration, nearby infrastructure) and deep link (`#s2=<h3>`, keyed by the stable H3 site id). The per-date timeline is rendered via the shared `renderTimeline` helper from detections fetched lazily by h3 from `s2_detections.parquet` when the card opens (kept out of the boot payload). gaslight does no detection itself — see Architecture (S2 layer). Refresh from p-f with `make s2`, then `make db`.
-6. **Reported flaring volumes**: Monthly lease-level gas disposition data from RRC PDQ (Production Data Query). Disposition code 04 = gas vented/flared. `rrc.production` stores monthly totals per lease (gas flared MCF + casinghead gas flared MCF). Flaring intensity = flared gas / total gas produced (%). Shown per-well in detail cards with monthly production charts.
+6. **NM OCD notifications (New Mexico)**: New Mexico's Oil Conservation Division publishes spill/release incident reports (a giant HTML table via its spill search), which include routine `Flare`, `Vent`, and `Vent with Flaring` notices as well as spills. Fetched by `make nmocd` → `data/nm_incidents.parquet`, normalised to `permian.nm_notifications` (Permian, 2021+, all incident types — the NM counterpart to TX SWR-32 permits), and exported site-aggregated to `web/data/nmocd.parquet` (flare/vent only) for the map. On the web map these live under the **"Notifications"** category (the renamed "Permit locations" toggle, which now drives both TX permits and NM notices); vented-gas volume (Mcf) is summed per site so venting can be read against the methane plumes layer. Self-reported, like the RRC disposition volumes — not an independent observation.
+7. **Reported flaring volumes**: Monthly lease-level gas disposition data from RRC PDQ (Production Data Query). Disposition code 04 = gas vented/flared. `rrc.production` stores monthly totals per lease (gas flared MCF + casinghead gas flared MCF). Flaring intensity = flared gas / total gas produced (%). Shown per-well in detail cards with monthly production charts.
 
 ## Key details
 
 - **EBCDIC districts**: numeric codes mapped to alphanumeric via `rrc.district_map` (08→7B, 09→7C, 10→08, 11→8A)
 - **Permits**: `rrc.permits` merges raw filings + detail pages with parsed dates, eliminating repeated COALESCE patterns downstream.
-- **Well flaring**: `wells.parquet` includes per-lease flaring metrics (`flared_mcf`, `produced_mcf`, `flaring_intensity_pct`) joined from PDQ production data. Wells rendered as X markers (SDF symbol layer, visible at all zooms) colored by a combined score `sqrt(intensity% × ln(1 + flared_mcf))` on the same dark-red→white-hot ramp as flare sites. Well detail cards show a lease section with flaring stats and monthly production charts.
+- **Wells (two states)**: the "Oil/gas wells" map layer and the shareable DB carry both states as a symmetric pair, both rendered as plain white X markers (SDF symbols). Texas wells (`wells_tx` table → `web/data/wells_tx.parquet`, `wells-tx-layer`) come from the RRC and still carry per-lease flaring metrics (`flared_mcf`, `produced_mcf`, `flaring_intensity_pct`) joined from PDQ production data — shown in the detail card's lease/flaring/production section, no longer used to colour the marker (the intensity ramp added little once the layer was restricted to a flare radius). New Mexico wells (`wells_nm` table → `web/data/wells_nm.parquet`, `wells-nm-layer`) come from the NM OCD well search (active, un-plugged, surface locations); no PDQ flaring feed exists on the NM side, so they carry header attributes only (type, status, spud, depths, operator). Both ride the single "Wells" toggle; each gets its own drawer tab ("TX wells" / "NM wells") and detail card. The web layer ships only wells within the VIIRS pixel bbox (±0.0034° ≈ 375m — the "flare detection area" box) of a flare site; the full whole-Permian sets live in `dist.wells_tx` / `dist.wells_nm`.
 - **Gatherers/Purchasers**: `gatherers.parquet` from P-4 EBCDIC type 03 records (P4GPN segment). Links each lease to its gatherers, purchasers, and nominators via P-5 org numbers. Shown in well detail cards under the lease section, with current entities displayed prominently and historical ones collapsed.
 - **IMEO source**: `data/imeo_plumes.geojson` — manual download from methanedata.unep.org (no API).
 - **Permit coverage**: `rrc.permit_leases` maps each SWR 32 filing to its underlying leases.
-- **Permian bbox**: 30–33.5°N, 100–104.5°W (applied at export time via `in_permian()` macro). Texas-only: sites above 32°N must be east of -103.064° (TX-NM border) to exclude New Mexico.
+- **Permian bbox**: 30–33.5°N, 100–104.5°W (applied at export time via `in_permian()` macro). Covers **both states** — the historical Texas-only clip (sites above 32°N had to be east of the -103.064° TX-NM border) has been lifted so the satellite (VNF/S2), plume, and NM OCD layers fill in the New Mexico Delaware side.
 - **Match radius**: 375m (VIIRS M-band pixel radius = 750m / 2). Bounding box pre-filter ±0.0034° (~375m).
 - **VIIRS pixel squares**: 750m squares generated client-side in the web app for visual review of spatial matching.
 - **Selection behaviour**: clicking a feature selects it (dims map, highlights selected + associated features). Clicking anywhere while a feature is selected always deselects first — you can't jump directly from one selection to another.
 - **Deep linking**: all params in the hash alongside MapLibre's map position. `#map=zoom/lat/lon&vnf=ID` opens VNF detail, `#map=…&s2=<h3>` opens an S2 site detail card (keyed by the stable H3 id).
-- **Colors**: defined centrally as CSS custom properties (`--color-flare`, `--color-permit`, `--color-plume`, `--color-well`) in `:root`; JS reads them via `getComputedStyle`. Color ramps for intensity (`b12Color`, `mwColor`) are shared functions in app.js. Wells use the same dark-red→white-hot ramp as flares, driven by a combined intensity×volume score.
+- **Colors**: defined centrally as CSS custom properties (`--color-flare`, `--color-permit`, `--color-plume`, `--color-well`) in `:root`; JS reads them via `getComputedStyle`. Color ramps for intensity (`b12Color`, `mwColor`) are shared functions in app.js. Wells (both states) render as plain white X markers — no intensity ramp.
 - **Legend order**: Flare sites → Permit locations → Methane plumes → Infrastructure → Oil/gas wells.
 
 ## Commands
@@ -85,6 +88,8 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 - `make serve` — dev server on :8080
 - `make plumes` — fetch latest plume data
 - `make r3` — fetch RRC R-3 gas processing facilities
+- `make nmocd` — fetch New Mexico OCD spill/flare/vent notifications → `data/nm_incidents.parquet`
+- `make nmocd-wells` — fetch New Mexico OCD well headers → `data/wells_nm.parquet`
 - `make s2` — fetch permian-flaring's S2 catalogue → `data/s2_catalogue.parquet` (run `make s2-export` in permian-flaring first, then `make db` to ingest)
 - `make clean` — removes derived data
 - `make help` — list all targets

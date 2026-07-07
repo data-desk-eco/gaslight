@@ -70,7 +70,7 @@ duckdb gaslight.duckdb
 -- list tables
 SHOW TABLES;
 -- in-database column dictionary
-SELECT * FROM _dictionary WHERE table_name = 'wells';
+SELECT * FROM _dictionary WHERE table_name = 'wells_tx';
 -- the brightest flare sites by total radiant heat
 SELECT flare_id, lat, lon, detection_days, total_rh_mw
 FROM vnf_sites ORDER BY total_rh_mw DESC LIMIT 20;
@@ -84,18 +84,20 @@ latitude/longitude columns).
 
 | table | grain | rows | what it is |
 | --- | --- | --- | --- |
-| [`vnf_sites`](vnf_sites.md) | one row per VNF flare site (`flare_id`) | 1,297 | Satellite-observed flare locations and how active each has been. |
-| [`vnf_detections`](vnf_detections.md) | one row per flare site × detected night | 205,969 | Per-night detection time series behind each flare site. |
+| [`vnf_sites`](vnf_sites.md) | one row per VNF flare site (`flare_id`) | 1,674 | Satellite-observed flare locations and how active each has been. |
+| [`vnf_detections`](vnf_detections.md) | one row per flare site × detected night | 258,565 | Per-night detection time series behind each flare site. |
 | [`permits`](permits.md) | one row per SWR 32 permit filing (`filing_no`) | 9,815 | RRC SWR 32 flaring/venting exception permits, geolocated. |
 | [`permit_leases`](permit_leases.md) | one row per filing × underlying lease | 80,217 | The leases underlying each SWR 32 permit filing. |
-| [`wells`](wells.md) | one row per well (API) | 324,692 | Every Permian well, with operator and its lease's flaring metrics. |
+| [`wells_tx`](wells_tx.md) | one row per well (API) | 324,735 | Every Permian (Texas) well, with operator and its lease's flaring metrics. |
+| [`wells_nm`](wells_nm.md) | one row per well (API) | 49,829 | Active New Mexico (OCD) Permian wells — header attributes only. |
 | [`leases`](leases.md) | one row per lease (`lease_district` + `lease_number`) | 28,219 | Lease-level rollup of reported flaring, intensity, and well count. |
 | [`monthly_flaring`](monthly_flaring.md) | one row per lease × month with reported flaring | 639,578 | Monthly lease-level reported gas flared/vented and produced. |
 | [`gatherers`](gatherers.md) | one row per lease × role × entity (current/historical) | 1,690,145 | Gatherers, purchasers, and nominators handling each lease's gas. |
-| [`plumes`](plumes.md) | one row per plume observation (`plume_id`) | 6,581 | Methane plume detections (Carbon Mapper + UNEP IMEO). |
+| [`plumes`](plumes.md) | one row per plume observation (`plume_id`) | 10,643 | Methane plume detections (Carbon Mapper + UNEP IMEO). |
+| [`nm_notifications`](nm_notifications.md) | one row per reported incident (`incident_number` may repeat across materials) | 209,653 | New Mexico OCD spill/flare/vent incident notifications (Permian, 2021+). |
 | [`facilities`](facilities.md) | one row per gas processing facility (`serial_number`) | 596 | RRC R-3 gas processing facilities (gas plants). |
 | [`operators`](operators.md) | one row per RRC operator number | 77,888 | RRC operator-number → name reference lookup. |
-| [`s2_detections`](s2_detections.md) | one row per H3 flare site | 2,553 | Sentinel-2 SWIR flare sites (top-scoring, from permian-flaring). |
+| [`s2_detections`](s2_detections.md) | one row per H3 flare site | 3,260 | Sentinel-2 SWIR flare sites (top-scoring, from permian-flaring). |
 
 ## Sources & attribution
 
@@ -107,6 +109,7 @@ latitude/longitude columns).
 - **RRC R-3 gas processing facilities** — Texas Railroad Commission. Texas public records. <https://www.rrc.texas.gov/>
 - **Carbon Mapper methane plumes** — Carbon Mapper. CC BY 4.0 (verify current terms before redistribution). <https://carbonmapper.org/>
 - **UNEP IMEO methane plumes** — UN Environment Programme — International Methane Emissions Observatory. Public; attribute UNEP IMEO. <https://methanedata.unep.org/>
+- **New Mexico OCD spill/release incidents** — New Mexico Energy, Minerals and Natural Resources Dept. — Oil Conservation Division. Public record. <https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/Spills/SpillSearchResults.aspx>
 
 All RRC data are Texas public records. Satellite and methane layers are free/open with attribution as noted — verify current provider terms before republishing derived products.
 

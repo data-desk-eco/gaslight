@@ -12,7 +12,7 @@ SELECT * REPLACE (replace(operator_name, '&amp;', '&') AS operator_name),
 FROM read_csv('data/filings.csv', delim='\t', header=true, all_varchar=true);
 
 -- Wells
-CREATE OR REPLACE TABLE raw.wells AS
+CREATE OR REPLACE TABLE raw.wells_tx AS
 SELECT *,
     CASE WHEN latitude != 0 AND longitude != 0 THEN ST_Point(longitude, latitude) END AS geom
 FROM read_csv('data/wells.csv', header=true, auto_detect=true);
@@ -164,8 +164,31 @@ WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
 CREATE OR REPLACE TABLE raw.s2_catalogue AS
 SELECT * FROM read_parquet('data/s2_catalogue.parquet');
 
+-- New Mexico OCD spill/release incidents (flaring, venting, spills). Fetched by
+-- `make nmocd`; one row per reported incident-material. Dates arrive as ISO
+-- strings (garbage years already dropped at fetch); cast to DATE here.
+CREATE OR REPLACE TABLE raw.nm_incidents AS
+SELECT * REPLACE (
+        TRY_CAST(incident_date AS DATE) AS incident_date,
+        TRY_CAST(notification_date AS DATE) AS notification_date),
+    CASE WHEN latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180
+         THEN ST_Point(longitude, latitude) END AS geom
+FROM read_parquet('data/nm_incidents.parquet');
+
+-- New Mexico OCD well headers (active, un-plugged surface locations). Fetched by
+-- `make nmocd-wells`; one row per well. Dates arrive as ISO strings; cast here.
+CREATE OR REPLACE TABLE raw.wells_nm AS
+SELECT * REPLACE (
+        TRY_CAST(apd_date AS DATE) AS apd_date,
+        TRY_CAST(spud_date AS DATE) AS spud_date,
+        TRY_CAST(last_production AS DATE) AS last_production),
+    CASE WHEN latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180
+         THEN ST_Point(longitude, latitude) END AS geom
+FROM read_parquet('data/wells_nm.parquet');
+
 -- Spatial indexes
-CREATE INDEX idx_wells_geom ON raw.wells USING RTREE (geom);
+CREATE INDEX idx_wells_geom ON raw.wells_tx USING RTREE (geom);
 CREATE INDEX idx_vnf_geom ON raw.vnf USING RTREE (geom);
 CREATE INDEX idx_permit_loc_geom ON raw.permit_locations USING RTREE (geom);
 CREATE INDEX idx_plumes_geom ON raw.plumes USING RTREE (geom);
+CREATE INDEX idx_wells_nm_geom ON raw.wells_nm USING RTREE (geom);

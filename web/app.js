@@ -90,11 +90,30 @@ function openDetail(title, lat, lon, body) {
     panel.scrollTop = 0;
 }
 
-let layerState = { flares: true, s2: true, permits: true, plumes: false, wells: false, infra: false };
+let layerState = { flares: true, s2: true, permits: false, plumes: false, wells: false, infra: false };
+let minPersistence = 0;
+
+// persistence filter for flare layers: fraction of observed days/passes alight
+// (vnf: detection_days over first→last span; s2: detections over clear obs).
+// nulls coalesce to 1 so unscored sites stay visible.
+const PERSISTENCE_LAYERS = ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer',
+    'flare-pixels-label', 's2-points', 's2-points-fill'];
+
+function applyPersistenceFilter() {
+    for (const id of PERSISTENCE_LAYERS) {
+        if (!map.getLayer(id)) continue;
+        map.setFilter(id, minPersistence > 0
+            ? ['>=', ['coalesce', ['get', 'persistence'], 1], minPersistence] : null);
+    }
+    map.once('idle', updateStats);
+}
 let overlappingFeatures = [];
 let overlapIndex = 0;
 let flareFeatures = [];
 const _originalSourceData = {}; // stashed per-layer source data for restoring after search
+
+// clamp deep-link zoom to maxZoom — maplibre discards (not clamps) out-of-range hashes
+location.hash = location.hash.replace(/#map=([\d.]+)/, (m, z) => '#map=' + Math.min(+z, 18));
 
 const map = new maplibregl.Map({
     container: 'map',
@@ -130,6 +149,7 @@ const map = new maplibregl.Map({
     center: [-102.5, 31.8],
     zoom: 7,
     minZoom: 7,
+    maxZoom: 18, // arcgis world imagery serves "map data not yet available" tiles beyond z19 (= map z18 with 256px tiles)
     maxBounds: [[-107, 29], [-98, 35]],
     projection: 'globe',
     hash: 'map'
@@ -157,7 +177,9 @@ map.on('load', async () => {
     addLayers();
     bootLog('bindui event listeners');
     bindUI();
-    restoreLayerHash();
+    // an explicit layer hash wins over the zoom default — just sync the mode flag
+    if (restoreLayerHash()) autoZoomedIn = map.getZoom() >= AUTO_ZOOM;
+    else applyZoomMode();
     bootLog('query  vnf.parquet');
     bootStatus('querying VNF sites...');
     await refreshFlares();
@@ -167,6 +189,7 @@ map.on('load', async () => {
     bootLog('tier1  fetch permits, plumes, wells, facilities');
     db.loadTier1();
     loadPermits();
+    loadNmocd();
     // Load permian-flaring's score-capped S2 catalogue before handling deep links
     await s2.load();
     if (s2.isLoaded()) {
@@ -197,11 +220,15 @@ map.on('load', async () => {
             updateHash({ data: tab || undefined, q: q || undefined });
         },
         onSelect: (layer, row) => {
+            // layerId defaults to `${tab}-layer`; wells/nmocd tabs need it spelt
+            // out because the tab key and the map layer id differ.
             const info = {
                 flares: { latCol: 'lat', lonCol: 'lon' },
                 permits: { latCol: 'latitude', lonCol: 'longitude' },
+                nmocd: { latCol: 'latitude', lonCol: 'longitude' },
                 plumes: { latCol: 'latitude', lonCol: 'longitude' },
-                wells: { latCol: 'latitude', lonCol: 'longitude' },
+                wells_tx: { latCol: 'latitude', lonCol: 'longitude', layerId: 'wells-tx-layer' },
+                wells_nm: { latCol: 'latitude', lonCol: 'longitude', layerId: 'wells-nm-layer' },
                 infra: { latCol: 'latitude', lonCol: 'longitude' },
             }[layer];
             if (!info) return;
@@ -213,7 +240,7 @@ map.on('load', async () => {
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [lon, lat] },
                 properties: row,
-                layer: { id: `${layer}-layer` },
+                layer: { id: info.layerId || `${layer}-layer` },
             };
             overlappingFeatures = [feature];
             overlapIndex = 0;
@@ -230,7 +257,7 @@ function syncDrawer(f) {
     if (lid.startsWith('flare')) drawer.highlight('flares-layer', String(p.flare_id));
     else if (lid.startsWith('permits')) drawer.highlight('permits-layer', `${p.latitude}_${p.longitude}_${p.name}`);
     else if (lid.startsWith('plumes')) drawer.highlight('plumes-layer', String(p.plume_id));
-    else if (lid.startsWith('wells')) drawer.highlight('wells-layer', String(p.api));
+    else if (lid.startsWith('wells')) drawer.highlight(lid, String(p.api));
     else if (lid.startsWith('infra')) drawer.highlight('infra-layer', String(p.serial_number));
 }
 
@@ -239,8 +266,9 @@ function featureKey(f) {
     if (f.layer.id === 's2-points' && p.id) return `s2:${p.id}`;
     if (p.flare_id != null) return `flare:${p.flare_id}`;
     if (p.plume_id != null) return `plume:${p.plume_id}`;
-    if (p.api != null) return `well:${p.api}`;
+    if (p.api != null) return `${f.layer.id.startsWith('wells-nm') ? 'wellnm' : 'well'}:${p.api}`;
     if (p.serial_number != null && f.layer.id.startsWith('infra')) return `infra:${p.serial_number}`;
+    if (f.layer.id.startsWith('nmocd') && p.latitude != null) return `nmocd:${p.latitude}_${p.longitude}`;
     if (p.name != null && p.latitude != null) return `permit:${p.latitude}_${p.longitude}_${p.name}`;
     return `${f.layer.id}:${f.id}`;
 }
@@ -250,8 +278,10 @@ function addEmptySources() {
     map.addSource('texas', { type: 'geojson', data: 'data/texas.geojson' });
     map.addSource('flares', { type: 'geojson', data: empty });
     map.addSource('permits', { type: 'geojson', data: empty });
+    map.addSource('nmocd', { type: 'geojson', data: empty });
     map.addSource('plumes', { type: 'geojson', data: empty });
-    map.addSource('wells', { type: 'geojson', data: empty });
+    map.addSource('wells_tx', { type: 'geojson', data: empty });
+    map.addSource('wells_nm', { type: 'geojson', data: empty });
     map.addSource('infra', { type: 'geojson', data: empty });
     map.addSource('flare-pixels', { type: 'geojson', data: empty });
     map.addSource('s2-detections', { type: 'geojson', data: empty });
@@ -304,12 +334,8 @@ function zoomScale(sizeExpr, minScale = 0.45, z0 = 7, z1 = 12) {
 }
 
 function addLayers() {
-    // Flare radius: scale on total_rh_mw (MW)
-    const flareRadius = zoomScale([
-        'interpolate', ['linear'],
-        ['coalesce', ['get', 'total_rh_mw'], 0],
-        0, 2, 10, 4, 50, 7, 200, 12, 1000, 20, 5000, 32
-    ]);
+    // Flare radius: uniform, ~2x the width of the s2 squares
+    const flareRadius = zoomScale(12);
 
     map.addLayer({
         id: 'texas-border', type: 'line', source: 'texas',
@@ -323,27 +349,13 @@ function addLayers() {
         0, 1.5, 100, 2, 1000, 3.5, 5000, 6, 25000, 10, 100000, 16
     ]);
 
-    // Wells: fixed-size X markers, visible at z10+
-    // Color by combined score: sqrt(intensity% × ln(1 + flared_mcf))
-    // Weights both how wasteful (intensity) and how much gas (volume)
+    // Wells: fixed-size white X markers, visible at z10+. Both states render the
+    // same — flaring-intensity colouring added little once the layer was already
+    // restricted to wells within a VIIRS pixel of a detected flare, and there's
+    // no PDQ flaring feed on the NM side to colour by anyway.
     addWellImage();
-    const wellScore = ['sqrt', ['*',
-        ['coalesce', ['get', 'flaring_intensity_pct'], 0],
-        ['ln', ['+', 1, ['coalesce', ['get', 'flared_mcf'], 0]]]
-    ]];
-    const wellColor = [
-        'interpolate', ['linear'], wellScore,
-        0, '#776655',
-        1, '#cc5522',
-        4, '#e06628',
-        8, '#ee7733',
-        12, '#ff8844',
-        16, '#ffaa55',
-        22, '#ffcc44',
-        30, '#ffeeaa'
-    ];
     map.addLayer({
-        id: 'wells-layer', type: 'symbol', source: 'wells',
+        id: 'wells-tx-layer', type: 'symbol', source: 'wells_tx',
         layout: {
             visibility: 'none',
             'icon-image': 'well-x',
@@ -352,7 +364,22 @@ function addLayers() {
             'icon-ignore-placement': true,
         },
         paint: {
-            'icon-color': wellColor,
+            'icon-color': COLORS.well,
+            'icon-opacity': 0.85,
+        }
+    });
+
+    map.addLayer({
+        id: 'wells-nm-layer', type: 'symbol', source: 'wells_nm',
+        layout: {
+            visibility: 'none',
+            'icon-image': 'well-x',
+            'icon-size': zoomScale(0.4),
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
+        paint: {
+            'icon-color': COLORS.well,
             'icon-opacity': 0.85,
         }
     });
@@ -376,8 +403,28 @@ function addLayers() {
 
     map.addLayer({
         id: 'permits-layer', type: 'circle', source: 'permits',
+        layout: { visibility: 'none' },
         paint: {
             'circle-radius': permitRadius,
+            'circle-color': COLORS.permit,
+            'circle-opacity': 0.25,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': COLORS.permit
+        }
+    });
+
+    // NM OCD notifications (flare/vent notices, aggregated to sites) — same
+    // "Notifications" category/color as TX permits; radius scales on event count.
+    const nmocdRadius = zoomScale([
+        'interpolate', ['linear'],
+        ['coalesce', ['get', 'n_events'], 0],
+        0, 1.5, 5, 2.5, 25, 4, 100, 6, 500, 10, 2000, 16
+    ]);
+    map.addLayer({
+        id: 'nmocd-layer', type: 'circle', source: 'nmocd',
+        layout: { visibility: 'none' },
+        paint: {
+            'circle-radius': nmocdRadius,
             'circle-color': COLORS.permit,
             'circle-opacity': 0.25,
             'circle-stroke-width': 1,
@@ -422,7 +469,7 @@ function addLayers() {
     map.addLayer({
         id: 'flare-pixels-label', type: 'symbol', source: 'flare-pixel-labels',
         layout: {
-            'text-field': 'FLARE DETECTION AREA',
+            'text-field': 'VNF FLARE AREA',
             'text-font': ['Noto Sans Regular'],
             'text-size': ['interpolate', ['exponential', 2], ['zoom'], 13, 2.75, 15, 11, 17, 44],
             'text-anchor': 'bottom-left',
@@ -465,10 +512,12 @@ function addLayers() {
     ctx.clearRect(bw, bw, sz - 2 * bw, sz - 2 * bw);
     map.addImage('s2-square-stroke', { width: sz, height: sz, data: new Uint8Array(ctx.getImageData(0, 0, sz, sz).data) }, { sdf: true });
 
+    // Same palette as the VNF ramp, keyed on peak B12/B11 (spectral temperature proxy;
+    // <1.15 = likely solar glint, median ~1.8, p90 ~2.3)
     const s2ColorRamp = [
         'interpolate', ['linear'],
-        ['coalesce', ['get', 'max_b12'], 0],
-        0.3, '#660800', 0.5, '#991100', 0.7, '#cc2200', 0.9, '#ff4422', 1.2, '#ff8844', 1.5, '#ffcc44'
+        ['coalesce', ['get', 'b12_b11_ratio'], 0],
+        0.9, '#660800', 1.15, '#991100', 1.5, '#cc2200', 1.8, '#ff4422', 2.2, '#ff8844', 3, '#ffcc44', 4.5, '#ffeeaa'
     ];
     const s2IconSize = zoomScale(['interpolate', ['linear'],
         ['coalesce', ['get', 'max_b12'], 0],
@@ -577,6 +626,14 @@ async function loadPermits() {
     setTimeout(() => drawer.setData('permits', data.features), 0);
 }
 
+async function loadNmocd() {
+    if (!layerState.permits) return;
+    const data = await db.queryNmocd();
+    _originalSourceData.nmocd = data;
+    map.getSource('nmocd').setData(data);
+    setTimeout(() => drawer.setData('nmocd', data.features), 0);
+}
+
 async function loadPlumes() {
     if (!layerState.plumes) return;
     const data = await db.queryPlumes();
@@ -598,9 +655,19 @@ async function loadWells() {
     const b = map.getBounds();
     const bounds = { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() };
     const data = await db.queryWells({ bounds });
-    _originalSourceData.wells = data;
-    map.getSource('wells').setData(data);
-    drawer.setData('wells', data.features);
+    _originalSourceData.wells_tx = data;
+    map.getSource('wells_tx').setData(data);
+    drawer.setData('wells_tx', data.features);
+}
+
+async function loadWellsNm() {
+    if (!layerState.wells) return;
+    const b = map.getBounds();
+    const bounds = { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() };
+    const data = await db.queryWellsNm({ bounds });
+    _originalSourceData.wells_nm = data;
+    map.getSource('wells_nm').setData(data);
+    drawer.setData('wells_nm', data.features);
 }
 
 
@@ -618,8 +685,10 @@ function loadS2Sites() {
             properties: {
                 id: d.id, lon: d.lon, lat: d.lat,
                 max_b12: d.max_b12, mean_max_b12: d.mean_max_b12,
+                b12_b11_ratio: d.b12_b11_ratio,
                 n_detections: d.n_detections, n_dates: d.n_dates,
                 first_date: d.first_date, last_date: d.last_date,
+                persistence: d.persistence,
                 total_score: d.total_score, corroborated: d.corroborated,
             },
         })),
@@ -644,9 +713,9 @@ function updateStats() {
 const LAYER_MAP = {
     flares: ['flares-layer', 'flare-pixels-fill', 'flare-pixels-layer', 'flare-pixels-label'],
     s2: ['s2-points', 's2-points-fill'],
-    permits: ['permits-layer'],
+    permits: ['permits-layer', 'nmocd-layer'],
     plumes: ['plumes-layer'],
-    wells: ['wells-layer'],
+    wells: ['wells-tx-layer', 'wells-nm-layer'],
     infra: ['infra-layer']
 };
 
@@ -713,6 +782,7 @@ function restoreLayerHash() {
         if (row) group.appendChild(row);
     }
     syncLayerOrder();
+    return true;
 }
 
 function setLayerVisibility(layer, visible) {
@@ -722,11 +792,27 @@ function setLayerVisibility(layer, visible) {
         map.setLayoutProperty(id, 'visibility', vis);
     }
     if (visible) {
-        if (layer === 'permits') loadPermits();
+        if (layer === 'permits') { loadPermits(); loadNmocd(); }
         if (layer === 'plumes') loadPlumes();
-        if (layer === 'wells') loadWells();
+        if (layer === 'wells') { loadWells(); loadWellsNm(); }
         if (layer === 'infra') loadInfra();
     }
+}
+
+// auto layer mode: flares-only at basin scale; everything on past ~half-way in.
+// crossing the threshold resets the non-flare layers; manual toggles still work
+// within each mode.
+const AUTO_ZOOM = 11, AUTO_LAYERS = ['permits', 'plumes', 'infra', 'wells'];
+let autoZoomedIn = false;
+function applyZoomMode() {
+    const zi = map.getZoom() >= AUTO_ZOOM;
+    if (zi === autoZoomedIn) return;
+    autoZoomedIn = zi;
+    for (const layer of AUTO_LAYERS) {
+        setLayerVisibility(layer, zi);
+        document.querySelector(`.toggle-row[data-layer="${layer}"] input`).checked = zi;
+    }
+    saveLayerHash();
 }
 
 const ALL_CLICK_LAYERS = [
@@ -735,17 +821,24 @@ const ALL_CLICK_LAYERS = [
     'flare-pixels-layer',
     's2-points',
     'permits-layer',
+    'nmocd-layer',
     'plumes-layer',
-    'wells-layer',
+    'wells-tx-layer',
+    'wells-nm-layer',
     'infra-layer'
 ];
 
 function bindUI() {
     // Build flare pixel squares lazily when user zooms in past z12
-    map.on('zoom', () => { if (map.getZoom() >= 12) ensureFlarePixels(); });
+    map.on('zoom', () => { if (map.getZoom() >= 12) ensureFlarePixels(); applyZoomMode(); });
 
     $('collapse-toggle').addEventListener('click', () => {
         $('left-panel').classList.toggle('collapsed');
+    });
+    $('persistence-range').addEventListener('input', e => {
+        minPersistence = parseFloat(e.target.value);
+        $('persistence-value').textContent = `${Math.round(minPersistence * 100)}%`;
+        applyPersistenceFilter();
     });
     for (const row of document.querySelectorAll('.toggle-row[data-layer]')) {
         const layer = row.dataset.layer;
@@ -861,6 +954,7 @@ function bindUI() {
     map.on('moveend', () => {
         updateStats();
         loadWells();
+        loadWellsNm();
     });
 }
 
@@ -904,7 +998,9 @@ async function handleDeepLink() {
     // Drawer state — independent of feature selection, honour alongside
     if (params.data) {
         const layer = params.data;
-        const cb = document.querySelector(`.toggle-row[data-layer="${layer}"] input`);
+        // some drawer tabs ride an umbrella toggle (nmocd→permits, wells_*→wells)
+        const toggle = { nmocd: 'permits', wells_tx: 'wells', wells_nm: 'wells' }[layer] || layer;
+        const cb = document.querySelector(`.toggle-row[data-layer="${toggle}"] input`);
         if (cb && !cb.checked) {
             cb.checked = true;
             cb.dispatchEvent(new Event('change'));
@@ -982,8 +1078,10 @@ const LAYER_DEFAULTS = {
         'text-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 15, 1],
     },
     'permits-layer': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
+    'nmocd-layer': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
     'plumes-layer': { 'circle-stroke-opacity': 1, 'circle-opacity': 0.25 },
-    'wells-layer': { 'icon-opacity': 0.85 },
+    'wells-tx-layer': { 'icon-opacity': 0.85 },
+    'wells-nm-layer': { 'icon-opacity': 0.85 },
     'infra-layer': { 'icon-opacity': 0.85 },
     's2-points': { 'icon-opacity': 1 },
 };
@@ -1014,7 +1112,7 @@ function dimPaint(base, ratio, match) {
     return result;
 }
 
-function activateSelection({ flareId, permitProps, plumeId, wellApi, infraSerial, s2Id } = {}) {
+function activateSelection({ flareId, permitProps, nmocdProps, plumeId, wellApi, wellNmApi, infraSerial, s2Id } = {}) {
     $('map-dim-overlay').classList.add('active');
 
     const flareMatch = flareId != null ? ['==', ['get', 'flare_id'], flareId] : null;
@@ -1026,8 +1124,12 @@ function activateSelection({ flareId, permitProps, plumeId, wellApi, infraSerial
             ['==', ['get', 'latitude'], Number(permitProps.latitude)],
             ['==', ['get', 'longitude'], Number(permitProps.longitude)],
             ['==', ['get', 'name'], permitProps.name]] : null,
+        'nmocd-layer': nmocdProps ? ['all',
+            ['==', ['get', 'latitude'], Number(nmocdProps.latitude)],
+            ['==', ['get', 'longitude'], Number(nmocdProps.longitude)]] : null,
         'plumes-layer': plumeId != null ? ['==', ['get', 'plume_id'], plumeId] : null,
-        'wells-layer': wellApi != null ? ['==', ['get', 'api'], wellApi] : null,
+        'wells-tx-layer': wellApi != null ? ['==', ['get', 'api'], wellApi] : null,
+        'wells-nm-layer': wellNmApi != null ? ['==', ['get', 'api'], wellNmApi] : null,
         'infra-layer': infraSerial != null ? ['==', ['get', 'serial_number'], infraSerial] : null,
         's2-points': s2Id != null ? ['==', ['get', 'id'], s2Id] : null,
     };
@@ -1070,8 +1172,10 @@ function showFeatureDetail(feature) {
     const selOpts = {};
     if (p.flare_id != null) selOpts.flareId = p.flare_id;
     if (layer.startsWith('permits-')) selOpts.permitProps = { latitude: p.latitude, longitude: p.longitude, name: p.name };
+    if (layer.startsWith('nmocd-')) selOpts.nmocdProps = { latitude: p.latitude, longitude: p.longitude };
     if (layer.startsWith('plumes-')) selOpts.plumeId = p.plume_id;
-    if (layer.startsWith('wells-')) selOpts.wellApi = p.api;
+    if (layer.startsWith('wells-nm')) selOpts.wellNmApi = p.api;
+    else if (layer.startsWith('wells-')) selOpts.wellApi = p.api;
     if (layer.startsWith('infra-')) selOpts.infraSerial = p.serial_number;
     activateSelection(selOpts);
 
@@ -1087,6 +1191,8 @@ function showFeatureDetail(feature) {
         else {
             updateHash(SELECTION_KEYS);
             if (layer.startsWith('permits-')) showPermitDetail(feature);
+            else if (layer.startsWith('nmocd-')) showNmocdDetail(feature);
+            else if (layer.startsWith('wells-nm')) showWellNmDetail(feature);
             else if (layer.startsWith('wells-')) showWellDetail(feature);
             else if (layer.startsWith('infra-')) showInfraDetail(feature);
         }
@@ -1097,7 +1203,7 @@ function showFeatureDetail(feature) {
 
 function updateOverlapNav() {
     const layer0 = overlappingFeatures[0]?.layer?.id || '';
-    const group = layer0.startsWith('permits-') ? 'permits-' : layer0.startsWith('plumes-') ? 'plumes-' : null;
+    const group = layer0.startsWith('permits-') ? 'permits-' : layer0.startsWith('nmocd-') ? 'nmocd-' : layer0.startsWith('plumes-') ? 'plumes-' : null;
     const nav = $('overlap-nav');
     if (group) {
         const grouped = overlappingFeatures.filter(f => f.layer.id.startsWith(group));
@@ -1297,6 +1403,31 @@ function showPermitDetail(feature) {
     }).catch(() => {});
 }
 
+function showNmocdDetail(feature) {
+    const p = feature.properties;
+    const vented = Number(p.vented_mcf) || 0;
+    const title = p.facility_name || p.operator || 'NM notification';
+    openDetail(title, p.latitude, p.longitude, [
+        card.stats([
+            { value: Number(p.n_events).toLocaleString(), unit: 'notifications' },
+            { value: Number(p.n_vent).toLocaleString(), unit: 'venting' },
+            vented > 0 && { value: vented.toLocaleString(), unit: 'Mcf vented' },
+        ].filter(Boolean)),
+        card.fields(
+            ['Operator', p.operator || 'N/A'],
+            ['County', p.county || 'N/A'],
+            ['Flare notices', Number(p.n_flare).toLocaleString()],
+            ['Vent notices', Number(p.n_vent).toLocaleString()],
+            ['First', formatDate(p.first_date)],
+            ['Latest', formatDate(p.last_date)],
+            ['Source', 'NM OCD'],
+        ),
+    ]);
+    // NM OCD spill search (no stable per-incident permalink) — link the title out.
+    const url = 'https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/Spills/SpillSearchResults.aspx';
+    $('detail-title').innerHTML = `<a href="${url}" target="_blank" rel="noopener" style="color: inherit; text-decoration: none;">${title}</a>`;
+}
+
 function plumeUrl(source, id) {
     if (source === 'cm') return `https://data.carbonmapper.org/?plume_id=${encodeURIComponent(id)}`;
     if (source === 'imeo') return `https://methanedata.unep.org`;
@@ -1395,6 +1526,32 @@ function showInfraDetail(feature) {
             p.plant_type && ['Type', p.plant_type],
         ),
     ]);
+}
+
+// NM OCD well — header attributes only (no PDQ lease/flaring data on this side).
+function showWellNmDetail(feature) {
+    const p = feature.properties;
+    const num = v => v != null && v !== '' ? Number(v).toLocaleString() : 'N/A';
+    const title = [p.well_name, p.well_number].filter(Boolean).join(' ') || `Well ${p.api}`;
+    const stlr = [p.section && `Sec ${p.section}`, p.township, p.range].filter(Boolean).join(' ');
+    openDetail(title, p.latitude, p.longitude, [
+        card.fields(
+            ['API', p.api || 'N/A'],
+            ['Operator', p.operator || 'N/A'],
+            ['Type', p.well_type || 'N/A'],
+            ['Status', p.status || 'N/A'],
+            ['District', p.district || 'N/A'],
+            stlr && ['Location', [stlr, p.footages].filter(Boolean).join(' · ')],
+            ['Spud', formatDate(p.spud_date)],
+            ['Last production', formatDate(p.last_production)],
+            ['Measured depth', p.measured_depth ? num(p.measured_depth) + ' ft' : 'N/A'],
+            ['True vertical', p.true_vertical_depth ? num(p.true_vertical_depth) + ' ft' : 'N/A'],
+            ['Source', 'NM OCD'],
+        ),
+    ]);
+    // NM OCD has no stable per-well permalink — link the title to the OCD portal.
+    const url = 'https://wwwapps.emnrd.nm.gov/ocd/ocdpermitting/';
+    $('detail-title').innerHTML = `<a href="${url}" target="_blank" rel="noopener" style="color: inherit; text-decoration: none;">${title}</a>`;
 }
 
 // Render an inline review callout for uncorroborated S2 sites whose spectral

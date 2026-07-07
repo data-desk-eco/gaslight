@@ -3,16 +3,19 @@ const _css = k => getComputedStyle(document.documentElement).getPropertyValue(k)
 const LAYERS = {
     flares:  { label: 'VNF',     color: () => _css('--color-flare'),  latCol: 'lat',       lonCol: 'lon',       idCol: 'flare_id' },
     s2:      { label: 'S2',      color: () => _css('--color-flare'),  latCol: 'lat',       lonCol: 'lon',       idCol: 'id' },
-    permits: { label: 'Permits', color: () => _css('--color-permit'), latCol: 'latitude',  lonCol: 'longitude',  idCol: null },
+    permits: { label: 'TX permits', color: () => _css('--color-permit'), latCol: 'latitude',  lonCol: 'longitude',  idCol: null },
+    nmocd:   { label: 'NM notices', color: () => _css('--color-permit'), latCol: 'latitude', lonCol: 'longitude', idCol: null },
     plumes:  { label: 'Plumes',  color: () => _css('--color-plume'),  latCol: 'latitude',  lonCol: 'longitude',  idCol: 'plume_id' },
-    wells:   { label: 'Wells',   color: () => _css('--color-well'),   latCol: 'latitude', lonCol: 'longitude', idCol: 'api' },
+    wells_tx: { label: 'TX wells', color: () => _css('--color-well'), latCol: 'latitude', lonCol: 'longitude', idCol: 'api' },
+    wells_nm: { label: 'NM wells', color: () => _css('--color-well'), latCol: 'latitude', lonCol: 'longitude', idCol: 'api' },
     infra:   { label: 'Infrastructure', color: () => _css('--color-infra'), latCol: 'latitude', lonCol: 'longitude', idCol: 'serial_number' },
 };
 
 const TAB_MAP = {
     'flares-layer': 'flares', 'flare-pixels-fill': 'flares', 'flare-pixels-layer': 'flares',
     's2-points': 's2', 's2-points-fill': 's2',
-    'permits-layer': 'permits', 'plumes-layer': 'plumes', 'wells-layer': 'wells', 'infra-layer': 'infra',
+    'permits-layer': 'permits', 'nmocd-layer': 'nmocd', 'plumes-layer': 'plumes',
+    'wells-tx-layer': 'wells_tx', 'wells-nm-layer': 'wells_nm', 'infra-layer': 'infra',
 };
 
 const MIN_WIDTH = 300;
@@ -342,10 +345,17 @@ function selectRow(idx) {
 function getVisibleLayers() {
     const visible = [];
     for (const row of document.querySelectorAll('.toggle-row[data-layer]')) {
-        const layer = row.dataset.layer;
         const cb = row.querySelector('input');
-        if (cb.checked && LAYERS[layer]) visible.push(layer);
+        if (!cb.checked) continue;
+        const layer = row.dataset.layer;
+        // the single "Wells" toggle drives both TX and NM well datasets.
+        if (layer === 'wells') visible.push('wells_tx', 'wells_nm');
+        else if (LAYERS[layer]) visible.push(layer);
     }
+    // nmocd has no toggle row of its own — it rides the "Notifications" (permits)
+    // toggle, so give it a drawer tab right after permits when that's on.
+    const pi = visible.indexOf('permits');
+    if (pi !== -1) visible.splice(pi + 1, 0, 'nmocd');
     return visible;
 }
 
