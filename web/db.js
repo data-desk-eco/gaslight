@@ -132,6 +132,19 @@ export async function queryS2Detections(h3) {
     return rows(result);
 }
 
+// per-report notifications for an nm ocd site, fetched lazily on card open.
+// feature properties carry 4dp-rounded coords, so match on the same rounding
+export async function queryNmocdReports(lat, lon) {
+    await need('nmocd_reports');
+    const result = await query(`
+        SELECT incident_number, date, incident_type, volume_released, volume_unit
+        FROM 'nmocd_reports.parquet'
+        WHERE round(latitude, 4) = ${lat} AND round(longitude, 4) = ${lon}
+        ORDER BY date DESC
+    `);
+    return rows(result);
+}
+
 function bboxDeltas(lat, radiusKm) {
     return {
         dLat: radiusKm / 110.54,

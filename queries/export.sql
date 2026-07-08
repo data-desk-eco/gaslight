@@ -82,6 +82,16 @@ COPY (
     GROUP BY round(latitude, 5), round(longitude, 5)
 ) TO 'web/data/nmocd.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
+-- per-report list for the NM notification cards, fetched lazily by site
+-- lat/lon on card open (mirrors vnf/s2 detections)
+COPY (
+    SELECT round(latitude, 5) AS latitude, round(longitude, 5) AS longitude,
+        incident_number, CAST(incident_date AS VARCHAR) AS date,
+        incident_type, volume_released, volume_unit
+    FROM permian.nm_notifications
+    WHERE incident_type IN ('Flare', 'Vent', 'Vent with Flaring')
+) TO 'web/data/nmocd_reports.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
+
 -- Wells (those within a VIIRS pixel of a flare site; see app_flare_lease_match)
 COPY (
     SELECT w.api, w.oil_gas_code, w.lease_district, w.lease_number, w.well_number,

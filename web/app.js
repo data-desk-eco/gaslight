@@ -1422,7 +1422,19 @@ function showNmocdDetail(feature) {
             ['Latest', formatDate(p.last_date)],
             ['Source', 'NM OCD'],
         ),
+        card.header('Notifications'),
+        `<div id="nmocd-report-list" class="s2-event-list"></div>`,
     ]);
+    // individual reports are fetched lazily by site lat/lon (mirrors s2 detections)
+    db.queryNmocdReports(Number(p.latitude), Number(p.longitude)).then(reps => {
+        const el = $('nmocd-report-list');
+        if (!el || !reps.length) return;
+        el.innerHTML = reps.map(r => `<div class="s2-event-item">
+            <span class="s2-event-date">${formatDate(r.date)}</span>
+            <span class="s2-event-b12">${r.incident_type}${r.volume_released
+                ? ` &middot; ${Number(r.volume_released).toLocaleString()} ${r.volume_unit || ''}` : ''}</span>
+        </div>`).join('');
+    }).catch(() => {});
     // NM OCD spill search (no stable per-incident permalink) — link the title out.
     const url = 'https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/Spills/SpillSearchResults.aspx';
     $('detail-title').innerHTML = `<a href="${url}" target="_blank" rel="noopener" style="color: inherit; text-decoration: none;">${title}</a>`;
