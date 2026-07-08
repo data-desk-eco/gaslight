@@ -9,13 +9,19 @@
 
 LOAD spatial;
 
+-- Flare points that pull nearby wells into the web export: VNF sites plus S2
+-- sites (some S2 sites have no VNF counterpart; s2 rows carry no flare_id).
+CREATE OR REPLACE TEMP TABLE app_flare_pts AS
+SELECT flare_id, lat, lon FROM permian.vnf_sites
+UNION ALL SELECT NULL, lat, lon FROM permian.s2_detections;
+
 -- Wells within the VIIRS pixel bbox (±0.0034° ≈ 375m) of any flare site, and
 -- the leases they belong to. Drives the wells/lease/production/gatherer
 -- projections below — the map's well layer ships the same one-pixel net used
 -- for attribution (the "flare detection area" box readers see).
 CREATE OR REPLACE TEMP TABLE app_flare_lease_match AS
 SELECT DISTINCT fs.flare_id, w.api, w.oil_gas_code, w.lease_district, w.lease_number
-FROM permian.vnf_sites fs
+FROM app_flare_pts fs
 JOIN permian.wells_tx w
     ON w.longitude BETWEEN fs.lon - 0.0034 AND fs.lon + 0.0034
     AND w.latitude  BETWEEN fs.lat - 0.0034 AND fs.lat + 0.0034;
@@ -54,6 +60,8 @@ COPY (
     SELECT plume_id, source, satellite, date, latitude, longitude,
         emission_rate, emission_uncertainty, sector
     FROM permian.plumes
+    -- sentinel-5p/tropomi pixels (~7km) are too coarse for site-level display
+    WHERE satellite NOT ILIKE 'Sentinel-5P%'
 ) TO 'web/data/plumes.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
 
 -- Facilities (R-3 gas processing)
@@ -112,7 +120,7 @@ COPY (
         CAST(w.last_production AS VARCHAR) AS last_production,
         w.latitude, w.longitude
     FROM permian.wells_nm w
-    JOIN permian.vnf_sites fs
+    JOIN app_flare_pts fs
         ON w.longitude BETWEEN fs.lon - 0.0034 AND fs.lon + 0.0034
         AND w.latitude  BETWEEN fs.lat - 0.0034 AND fs.lat + 0.0034
 ) TO 'web/data/wells_nm.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
@@ -124,7 +132,7 @@ COPY (
         round(COALESCE(lz.total_flared_mcf, 0), 0) AS reported_flared_mcf,
         lz.operator_name AS lease_operator, lz.lease_name
     FROM (SELECT DISTINCT flare_id, oil_gas_code, lease_district, lease_number
-          FROM app_flare_lease_match) m
+          FROM app_flare_lease_match WHERE flare_id IS NOT NULL) m
     LEFT JOIN (
         SELECT oil_gas_code, lease_district, lease_number, count(*) AS well_count
         FROM permian.wells_tx GROUP BY 1, 2, 3
