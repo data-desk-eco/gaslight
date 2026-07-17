@@ -1,7 +1,7 @@
 WORKERS ?= 32
 export WORKERS
 
-.PHONY: all db refresh publish export release vendor serve permits permit-details wells vnf plumes r3 eia s2 nmocd nmocd-wells clean help
+.PHONY: all db refresh publish export release chronicle vendor serve permits permit-details wells vnf plumes r3 eia s2 nmocd nmocd-wells clean help
 
 all: db
 
@@ -114,6 +114,17 @@ dist/gaslight.duckdb: data/data.duckdb queries/publish.sql docs/data-dictionary/
 	uv run scripts/build_dictionary.py
 	@echo "Shareable DB ready: $@ ($$(du -h $@ | cut -f1))"
 
+# --- chronicle handoff ---
+
+# minimal lease-level texas flaring/venting parquet, straight from the raw pdq
+# dsv dumps (statewide, all years) -- see queries/chronicle.sql
+chronicle: dist/tx_lease_flaring.parquet
+
+dist/tx_lease_flaring.parquet: data/pdq/.done queries/chronicle.sql
+	@mkdir -p dist
+	duckdb -c ".read queries/chronicle.sql"
+	@echo "Chronicle parquet ready: $@ ($$(du -h $@ | cut -f1))"
+
 # --- release ---
 
 # Upload the locally-built shareable DB as a GitHub release asset.
@@ -152,6 +163,7 @@ help:
 	@echo "  make publish         Build shareable dist/gaslight.duckdb + data dictionary"
 	@echo "  make export          Re-export parquets for web app"
 	@echo "  make release         Upload dist/gaslight.duckdb to a GitHub release"
+	@echo "  make chronicle       Lease-level TX flaring/venting parquet → dist/tx_lease_flaring.parquet"
 	@echo "  make vendor          Download vendored JS dependencies"
 	@echo "  make serve           Dev server on :8080"
 	@echo ""

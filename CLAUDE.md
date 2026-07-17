@@ -15,6 +15,7 @@ Flaring analysis for the Permian Basin (both the Texas and New Mexico sides). Ma
 - `scripts/fetch_nmocd.py` — fetches New Mexico OCD spill/flare/vent incident notifications → `data/nm_incidents.parquet`
 - `scripts/fetch_nmocd_wells.py` — fetches New Mexico OCD well headers (active, un-plugged) → `data/wells_nm.parquet`
 - `queries/load.sql` → `rrc.sql` → `publish.sql` → `export.sql` — SQL pipeline (load → normalise → build shareable DB → export parquets)
+- `queries/chronicle.sql` — minimal lease-level statewide TX flaring/venting parquet for newsroom handoff (`make chronicle` → `dist/tx_lease_flaring.parquet`); reads the raw PDQ DSVs directly, one traceable statement
 - `queries/s2.sql` — fetch+shape permian-flaring's S2 catalogue into the committed `data/s2_catalogue.parquet` (run by `make s2`)
 - `scripts/build_dictionary.py` — generates the data dictionary (nested markdown under `docs/data-dictionary/` + in-DB `_dictionary`/`_sources` tables) from `docs/data-dictionary/_meta.yaml`
 - `web/` — interactive map (MapLibre GL + DuckDB WASM, zero npm deps)
@@ -90,6 +91,7 @@ Single-page app with no build step and zero npm dependencies. MapLibre GL and Du
 - `make r3` — fetch RRC R-3 gas processing facilities
 - `make nmocd` — fetch New Mexico OCD spill/flare/vent notifications → `data/nm_incidents.parquet`
 - `make nmocd-wells` — fetch New Mexico OCD well headers → `data/wells_nm.parquet`
+- `make chronicle` — lease-level statewide TX flaring/venting parquet → `dist/tx_lease_flaring.parquet`
 - `make s2` — fetch permian-flaring's S2 catalogue → `data/s2_catalogue.parquet` (run `make s2-export` in permian-flaring first, then `make db` to ingest)
 - `make clean` — removes derived data
 - `make help` — list all targets
